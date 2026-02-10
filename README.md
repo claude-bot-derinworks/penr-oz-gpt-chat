@@ -22,14 +22,14 @@ GPT Chat Client leveraging Neural Network Service
      ```
      Update `.env` with your Neural Network service URL:
      ```dotenv
-     PREDICTION_SERVER_URL=http://localhost:8000
+     VITE_PREDICTION_SERVER_URL=http://localhost:8000
      ```
 
 3. **Neural Network Service**:
    - **Follow instructions** on [Quick Start Guide](https://github.com/derinworks/penr-oz-neural-network-v3-torch-ddp?tab=readme-ov-file#quickstart-guide)
    - **Deployed remotely** then use a `.env` file as such to configure url:
     ```dotenv
-    PREDICTION_SERVER_URL=http://???:8000
+    VITE_PREDICTION_SERVER_URL=http://???:8000
     ```
 
 4. **Run**:
