@@ -1,4 +1,6 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.DEV
+  ? '/api'
+  : (import.meta.env.VITE_PREDICTION_SERVER_URL || 'http://localhost:8000');
 
 export interface GenerateRequest {
   model_id: string;
