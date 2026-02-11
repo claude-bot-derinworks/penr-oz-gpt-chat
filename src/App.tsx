@@ -12,8 +12,9 @@ function App() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelId, setModelId] = useState('model');
-  const [maxTokens, setMaxTokens] = useState(200);
+  const [modelId, setModelId] = useState('gpt-example');
+  const [blockSize, setBlockSize] = useState(1024);
+  const [maxTokens, setMaxTokens] = useState(50);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,15 +32,20 @@ function App() {
     setLoading(true);
 
     try {
-      const tokens = await tokenize(userMessage);
-      const generated = await generate({
+      const tokenizedResponse = await tokenize(userMessage);
+      const generatedResponse = await generate({
         model_id: modelId,
-        input: tokens,
-        block_size: tokens.length,
+        input: [tokenizedResponse.tokens],
+        block_size: blockSize,
         max_new_tokens: maxTokens,
+        temperature: 1.0,
       });
-      const text = await decode(generated);
-      setMessages((prev) => [...prev, { role: 'assistant', content: text }]);
+      const onlyGeneratedTokens = generatedResponse.tokens.slice(tokenizedResponse.tokens.length);
+      const decodeResponse = await decode(onlyGeneratedTokens);
+      const decodedText = decodeResponse.text;
+      const endOfTextIdx = decodedText.indexOf('<|endoftext|>')
+      const textUntilFirstEndOfText = endOfTextIdx < 0 ? decodedText : decodedText.slice(0, endOfTextIdx);
+      setMessages((prev) => [...prev, { role: 'assistant', content: textUntilFirstEndOfText }]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Request failed';
       setError(message);
@@ -59,6 +65,19 @@ function App() {
               type="text"
               value={modelId}
               onChange={(e) => setModelId(e.target.value)}
+            />
+          </label>
+          <label>
+            Block size:
+            <input
+              type="number"
+              value={blockSize}
+              min={1}
+              max={2048}
+              onChange={(e) => {
+                const n = Math.trunc(Number(e.target.value));
+                setBlockSize(Number.isFinite(n) ? Math.max(1, Math.min(2048, n)) : 1)
+              }}
             />
           </label>
           <label>
