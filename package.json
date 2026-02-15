@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
-    "server:watch": "tsx watch server/index.ts"
+    "server:watch": "tsx watch server/index.ts",
+    "server:build": "tsc -p server/tsconfig.json",
+    "server:start": "node dist-server/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
