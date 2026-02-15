@@ -11,9 +11,8 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       proxy: {
         '/api': {
-          target: env.VITE_PREDICTION_SERVER_URL || 'http://localhost:8000',
+          target: env.VITE_PROXY_SERVER_URL || 'http://localhost:3001',
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api/, ''),
         },
       },
     },

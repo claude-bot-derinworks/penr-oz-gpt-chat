@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.DEV
   ? '/api'
-  : (import.meta.env.VITE_PREDICTION_SERVER_URL || 'http://localhost:8000');
+  : (import.meta.env.VITE_PROXY_SERVER_URL || 'http://localhost:3001') + '/api';
 
 export interface GenerateRequest {
   model_id: string;
@@ -64,6 +64,30 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
     body: JSON.stringify(req),
   });
   if (!res.ok) throw new Error(`Generate failed: ${res.statusText}`);
+  const data = await res.json();
+  return data;
+}
+
+export interface ChatRequest {
+  message: string;
+  model_id: string;
+  block_size: number;
+  max_new_tokens: number;
+  temperature: number;
+  top_k?: number;
+}
+
+export interface ChatResponse {
+  response: string;
+}
+
+export async function chat(req: ChatRequest): Promise<ChatResponse> {
+  const res = await fetch(`${API_BASE}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Chat failed: ${res.statusText}`);
   const data = await res.json();
   return data;
 }
