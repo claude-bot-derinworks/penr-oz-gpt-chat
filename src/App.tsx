@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { tokenize, generate, decode } from './api'
+import { chat } from './api'
 import './App.css'
 
 interface Message {
@@ -32,20 +32,14 @@ function App() {
     setLoading(true);
 
     try {
-      const tokenizedResponse = await tokenize(userMessage);
-      const generatedResponse = await generate({
+      const chatResponse = await chat({
+        message: userMessage,
         model_id: modelId,
-        input: [tokenizedResponse.tokens],
         block_size: blockSize,
         max_new_tokens: maxTokens,
         temperature: 1.0,
       });
-      const onlyGeneratedTokens = generatedResponse.tokens.slice(tokenizedResponse.tokens.length);
-      const decodeResponse = await decode(onlyGeneratedTokens);
-      const decodedText = decodeResponse.text;
-      const endOfTextIdx = decodedText.indexOf('<|endoftext|>')
-      const textUntilFirstEndOfText = endOfTextIdx < 0 ? decodedText : decodedText.slice(0, endOfTextIdx);
-      setMessages((prev) => [...prev, { role: 'assistant', content: textUntilFirstEndOfText }]);
+      setMessages((prev) => [...prev, { role: 'assistant', content: chatResponse.response }]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Request failed';
       setError(message);
