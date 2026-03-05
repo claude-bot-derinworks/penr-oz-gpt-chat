@@ -36,7 +36,7 @@ export interface DecodeResponse {
 }
 
 export async function tokenize(text: string, encoding = 'gpt2'): Promise<TokenizeResponse> {
-  const res = await fetch(`${API_BASE}/tokenize/`, {
+  const res = await fetch(`${API_BASE}/tokenize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ encoding, text } satisfies TokenizeRequest),
@@ -47,7 +47,7 @@ export async function tokenize(text: string, encoding = 'gpt2'): Promise<Tokeniz
 }
 
 export async function decode(tokens: number[], encoding = 'gpt2'): Promise<DecodeResponse> {
-  const res = await fetch(`${API_BASE}/decode/`, {
+  const res = await fetch(`${API_BASE}/decode`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ encoding, tokens } satisfies DecodeRequest),
@@ -58,7 +58,7 @@ export async function decode(tokens: number[], encoding = 'gpt2'): Promise<Decod
 }
 
 export async function generate(req: GenerateRequest): Promise<GenerateResponse> {
-  const res = await fetch(`${API_BASE}/generate/`, {
+  const res = await fetch(`${API_BASE}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),

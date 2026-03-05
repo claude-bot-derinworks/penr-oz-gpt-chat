@@ -58,10 +58,10 @@ function handleProxyError(err: unknown, res: Response) {
 // Proxy pass-through endpoints
 // ---------------------------------------------------------------------------
 
-const PROXY_PATHS = ['/api/tokenize/', '/api/generate/', '/api/decode/'] as const;
+const PROXY_PATHS = ['/api/tokenize', '/api/generate', '/api/decode'] as const;
 
 for (const proxyPath of PROXY_PATHS) {
-  const upstream = proxyPath.replace(/^\/api/, ''); // e.g. /tokenize/
+  const upstream = proxyPath.replace(/^\/api/, '') + '/'; // e.g. /tokenize/
   app.post(proxyPath, async (req: Request, res: Response) => {
     try {
       const upstream_res = await forwardPost(upstream, req.body);

@@ -3,6 +3,10 @@ GPT Chat Client leveraging Neural Network Service
 - Based on [ng-video-lecture](https://github.com/karpathy/ng-video-lecture), [nanoGPT](https://github.com/karpathy/nanoGPT) and  [nanochat](https://github.com/karpathy/nanochat)
 - Using the [Neural Network service](https://github.com/derinworks/penr-oz-neural-network-v3-torch-ddp)
 
+## API Contract
+
+See [API.md](API.md) for the full request/response contracts between the React client, Express proxy, and Neural Network service.
+
 ## Quickstart Guide
 
 1. **Clone the Repository**:
