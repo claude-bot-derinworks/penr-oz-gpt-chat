@@ -18,6 +18,58 @@ All endpoints accept and return `Content-Type: application/json`.
 
 ### POST /api/chat
 
+Orchestrated endpoint. Tokenizes the message, runs generation, decodes the result, and returns a plain-text reply.
+
+---
+
+### POST /api/chat/stream
+
+Streaming variant of `/api/chat`. Performs the same tokenize → generate → decode orchestration, but streams the response incrementally using **Server-Sent Events (SSE)**. Decoded tokens are emitted one at a time as they become available, allowing the client to render text progressively via `res.body.getReader()`.
+
+**Request**
+
+Same body as `POST /api/chat`.
+
+```json
+{
+  "message": "Once upon a time",
+  "model_id": "gpt-example",
+  "block_size": 1024,
+  "max_new_tokens": 50,
+  "temperature": 1.0,
+  "top_k": 40
+}
+```
+
+**Response** — `Content-Type: text/event-stream`
+
+Each token is sent as an SSE `data` event:
+
+```
+data: {"token":" there"}
+
+data: {"token":" was"}
+
+data: [DONE]
+```
+
+| Event                | Description                                      |
+|----------------------|--------------------------------------------------|
+| `data: {"token":"…"}`| A decoded token fragment to append to the output |
+| `data: [DONE]`       | Generation is complete; close the stream         |
+| `event: error`       | An error occurred; `data` contains `{"error":"…"}`|
+
+**Error Responses**
+
+| HTTP Status | Condition                          |
+|-------------|------------------------------------|
+| `400`       | Missing `message` or `model_id`    |
+| `502`/`504` | Upstream error (sent as SSE error event after headers are flushed) |
+
+---
+
+### POST /api/chat (non-streaming)
+
 Orchestrated endpoint. Tokenizes the message, runs generation, decodes the result, and returns a plain-text reply. This is the primary endpoint used by the chat UI.
 
 **Request**

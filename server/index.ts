@@ -145,6 +145,81 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// /api/chat/stream  --  streaming orchestrated endpoint (SSE)
+// ---------------------------------------------------------------------------
+
+app.post('/api/chat/stream', async (req: Request, res: Response) => {
+  const { message, model_id, block_size, max_new_tokens, temperature, top_k } =
+    req.body as ChatRequest;
+
+  if (!message || !model_id) {
+    res.status(400).json({ error: 'message and model_id are required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const sendDone = () => res.write('data: [DONE]\n\n');
+  const sendError = (error: string) => res.write(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
+
+  try {
+    // 1. Tokenize
+    const tokenizeRes = await forwardPost('/tokenize/', { encoding: 'gpt2', text: message });
+    if (!tokenizeRes.ok) {
+      sendError('Tokenization failed');
+      res.end();
+      return;
+    }
+    const tokenized = (await tokenizeRes.json()) as { tokens: number[] };
+
+    // 2. Generate (blocking – upstream does not stream)
+    const generateRes = await forwardPost('/generate/', {
+      model_id,
+      input: [tokenized.tokens],
+      block_size,
+      max_new_tokens,
+      temperature,
+      ...(top_k != null && { top_k }),
+    });
+    if (!generateRes.ok) {
+      sendError('Generation failed');
+      res.end();
+      return;
+    }
+    const generated = (await generateRes.json()) as { tokens: number[] };
+
+    // 3. Decode one token at a time and stream each piece
+    const newTokens = generated.tokens.slice(tokenized.tokens.length);
+    for (const token of newTokens) {
+      const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [token] });
+      if (!decodeRes.ok) break;
+      const decoded = (await decodeRes.json()) as { text: string };
+
+      const endIdx = decoded.text.indexOf('<|endoftext|>');
+      const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
+      sendEvent({ token: piece });
+      if (endIdx >= 0) break;
+    }
+
+    sendDone();
+    res.end();
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      sendError('Request to prediction server timed out');
+    } else {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Stream proxy error:', msg);
+      sendError('Failed to reach prediction server');
+    }
+    res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Global error handler
 // ---------------------------------------------------------------------------
 
