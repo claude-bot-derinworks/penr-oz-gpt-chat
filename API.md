@@ -12,13 +12,13 @@ React Client  ──►  Express Proxy (port 3001)  ──►  Neural Network Se
 
 Base URL: `http://localhost:3001`
 
-All endpoints accept and return `Content-Type: application/json`.
+All endpoints use `Content-Type: application/json` for requests. `/api/chat` responds with `Content-Type: text/event-stream` (SSE).
 
 ---
 
 ### POST /api/chat
 
-Orchestrated endpoint. Tokenizes the message, runs generation, decodes the result, and returns a plain-text reply. This is the primary endpoint used by the chat UI.
+Orchestrated streaming endpoint. Tokenizes the message, runs generation using the upstream's native `stream: true` mode (one token integer per line), decodes each token individually, and forwards them to the client as **Server-Sent Events (SSE)**. Tokens are emitted progressively as they are decoded, allowing the UI to render text in real time via `res.body.getReader()`.
 
 **Request**
 
@@ -33,33 +33,39 @@ Orchestrated endpoint. Tokenizes the message, runs generation, decodes the resul
 }
 ```
 
-| Field            | Type     | Required | Description                                          |
-|------------------|----------|----------|------------------------------------------------------|
-| `message`        | `string` | Yes      | The user's input text                                |
-| `model_id`       | `string` | Yes      | Identifier of the model to use for generation        |
-| `block_size`     | `number` | Yes      | Context window size (1–2048)                         |
-| `max_new_tokens` | `number` | Yes      | Maximum number of tokens to generate (1–2048)        |
-| `temperature`    | `number` | Yes      | Sampling temperature; higher = more random (e.g. 1.0)|
-| `top_k`          | `number` | No       | Top-k sampling cutoff; omit to disable               |
+| Field            | Type     | Required | Description                                           |
+|------------------|----------|----------|-------------------------------------------------------|
+| `message`        | `string` | Yes      | The user's input text                                 |
+| `model_id`       | `string` | Yes      | Identifier of the model to use for generation         |
+| `block_size`     | `number` | Yes      | Context window size (1–2048)                          |
+| `max_new_tokens` | `number` | Yes      | Maximum number of tokens to generate (1–2048)         |
+| `temperature`    | `number` | Yes      | Sampling temperature; higher = more random (e.g. 1.0) |
+| `top_k`          | `number` | No       | Top-k sampling cutoff; omit to disable                |
 
-**Response (200)**
+**Response** — `Content-Type: text/event-stream`
 
-```json
-{
-  "response": "Once upon a time there was a kingdom far away"
-}
+Each decoded token fragment is sent as an SSE `data` event:
+
+```
+data: {"token":" there"}
+
+data: {"token":" was"}
+
+data: [DONE]
 ```
 
-| Field      | Type     | Description                        |
-|------------|----------|------------------------------------|
-| `response` | `string` | The model's generated text reply   |
+| Event                 | Description                                       |
+|-----------------------|---------------------------------------------------|
+| `data: {"token":"…"}` | A decoded token fragment to append to the output  |
+| `data: [DONE]`        | Generation is complete; close the stream          |
+| `event: error`        | An error occurred; `data` contains `{"error":"…"}`|
 
 **Error Responses**
 
-| HTTP Status | Condition                                                                                                                |
-|-------------|--------------------------------------------------------------------------------------------------------------------------|
-| `400`       | Missing required fields (`message` or `model_id`)                                                                       |
-| `4xx`/`5xx` | An error occurred during an orchestration step (e.g., tokenization). See the general Layer 1 error responses section.   |
+| HTTP Status | Condition                                                                    |
+|-------------|------------------------------------------------------------------------------|
+| `400`       | Missing `message` or `model_id`                                              |
+| `502`/`504` | Upstream error (sent as SSE `event: error` after headers are already flushed)|
 
 ---
 
@@ -321,19 +327,24 @@ Error responses from the neural network service are forwarded as-is by the proxy
 
 ## Full `/api/chat` Flow
 
-The `/api/chat` endpoint internally orchestrates three calls to the neural network service:
+`/api/chat` orchestrates three upstream calls and streams decoded tokens back to the client as SSE. Generation uses the upstream's native `stream: true` mode, so each new token integer arrives line-by-line and is decoded individually before being forwarded.
 
 ```
 Client                  Proxy                     Neural Network Service
   │                       │                                │
   │── POST /api/chat ────►│                                │
-  │                       │── POST /tokenize/ ────────────►│
+  │  (SSE response ←)     │── POST /tokenize/ ────────────►│
   │                       │◄── { tokens: [...] } ──────────│
-  │                       │── POST /generate/ ────────────►│
-  │                       │◄── { tokens: [...] } ──────────│
-  │                       │  (slice off input tokens)       │
-  │                       │── POST /decode/ ──────────────►│
-  │                       │◄── { text: "..." } ────────────│
-  │                       │  (trim at <|endoftext|>)        │
-  │◄── { response } ──────│                                │
+  │                       │── POST /generate/             ►│
+  │                       │      { stream: true }          │
+  │                       │◄── 42\n (token int, streaming)─│
+  │                       │── POST /decode/ [42] ─────────►│
+  │                       │◄── { text: " there" } ─────────│
+  │◄─ data: {"token":" there"}\n\n                         │
+  │                       │◄── 373\n ──────────────────────│
+  │                       │── POST /decode/ [373] ────────►│
+  │                       │◄── { text: " was" } ───────────│
+  │◄─ data: {"token":" was"}\n\n                           │
+  │         ...            │         (repeats per token)    │
+  │◄─ data: [DONE]\n\n     │                                │
 ```

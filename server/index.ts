@@ -28,9 +28,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function forwardPost(targetPath: string, body: unknown): Promise<globalThis.Response> {
+async function forwardPost(targetPath: string, body: unknown, signal?: AbortSignal): Promise<globalThis.Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  signal?.addEventListener('abort', () => controller.abort());
 
   try {
     return await fetch(`${PREDICTION_SERVER_URL}${targetPath}`, {
@@ -74,7 +75,7 @@ for (const proxyPath of PROXY_PATHS) {
 }
 
 // ---------------------------------------------------------------------------
-// /api/chat  --  orchestrated endpoint
+// /api/chat  --  streaming orchestrated endpoint (SSE)
 // ---------------------------------------------------------------------------
 
 interface ChatRequest {
@@ -95,52 +96,114 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     return;
   }
 
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const sendDone = () => res.write('data: [DONE]\n\n');
+  const sendError = (error: string) => res.write(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
+
+  // Abort when the client disconnects so we stop the upstream stream too
+  const clientAbort = new AbortController();
+  res.on('close', () => clientAbort.abort());
+
   try {
     // 1. Tokenize
-    const tokenizeRes = await forwardPost('/tokenize/', {
-      encoding: 'gpt2',
-      text: message,
-    });
+    const tokenizeRes = await forwardPost('/tokenize/', { encoding: 'gpt2', text: message }, clientAbort.signal);
     if (!tokenizeRes.ok) {
-      res.status(tokenizeRes.status).json({ error: 'Tokenization failed' });
+      sendError('Tokenization failed');
+      res.end();
       return;
     }
     const tokenized = (await tokenizeRes.json()) as { tokens: number[] };
 
-    // 2. Generate
+    // 2. Generate with stream: true — upstream yields one token integer per line
     const generateRes = await forwardPost('/generate/', {
       model_id,
       input: [tokenized.tokens],
       block_size,
       max_new_tokens,
       temperature,
+      stream: true,
       ...(top_k != null && { top_k }),
-    });
+    }, clientAbort.signal);
+
     if (!generateRes.ok) {
-      res.status(generateRes.status).json({ error: 'Generation failed' });
+      sendError('Generation failed');
+      res.end();
       return;
     }
-    const generated = (await generateRes.json()) as { tokens: number[] };
-
-    // 3. Decode only newly generated tokens
-    const newTokens = generated.tokens.slice(tokenized.tokens.length);
-    const decodeRes = await forwardPost('/decode/', {
-      encoding: 'gpt2',
-      tokens: newTokens,
-    });
-    if (!decodeRes.ok) {
-      res.status(decodeRes.status).json({ error: 'Decoding failed' });
+    if (!generateRes.body) {
+      sendError('No response body from generation');
+      res.end();
       return;
     }
-    const decoded = (await decodeRes.json()) as { text: string };
 
-    // 4. Trim at first <|endoftext|>
-    const endIdx = decoded.text.indexOf('<|endoftext|>');
-    const response = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
+    // 3. Read token integers line-by-line, decode each, and forward as SSE
+    const reader = generateRes.body.getReader();
+    const textDecoder = new TextDecoder();
+    let lineBuffer = '';
+    let stopped = false;
 
-    res.json({ response });
+    while (!stopped) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      lineBuffer += textDecoder.decode(value, { stream: true });
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const tokenId = parseInt(trimmed, 10);
+        if (isNaN(tokenId)) continue;
+
+        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] }, clientAbort.signal);
+        if (!decodeRes.ok) {
+          stopped = true;
+          break;
+        }
+        const decoded = (await decodeRes.json()) as { text: string };
+
+        const endIdx = decoded.text.indexOf('<|endoftext|>');
+        const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
+        if (piece) sendEvent({ token: piece });
+        if (endIdx >= 0) {
+          stopped = true;
+          break;
+        }
+      }
+    }
+
+    // Flush any remaining buffered line (stream may not end with \n)
+    if (!stopped && lineBuffer.trim()) {
+      const tokenId = parseInt(lineBuffer.trim(), 10);
+      if (!isNaN(tokenId)) {
+        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] }, clientAbort.signal);
+        if (decodeRes.ok) {
+          const decoded = (await decodeRes.json()) as { text: string };
+          const endIdx = decoded.text.indexOf('<|endoftext|>');
+          const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
+          if (piece) sendEvent({ token: piece });
+        }
+      }
+    }
+
+    sendDone();
+    res.end();
   } catch (err) {
-    handleProxyError(err, res);
+    if (err instanceof Error && err.name === 'AbortError') {
+      // Client disconnected — no response needed
+    } else {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Chat error:', msg);
+      sendError(msg);
+    }
+    res.end();
   }
 });
 

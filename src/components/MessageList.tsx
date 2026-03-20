@@ -7,35 +7,37 @@ export interface Message {
 
 interface MessageListProps {
   messages: Message[];
-  loading: boolean;
+  streaming: boolean;
   error: string | null;
 }
 
-export function MessageList({ messages, loading, error }: MessageListProps) {
+export function MessageList({ messages, streaming, error }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, streaming]);
+
+  const isLastAssistantStreaming = (i: number) =>
+    streaming && i === messages.length - 1 && messages[i].role === 'assistant';
 
   return (
     <main className="chat-messages">
-      {messages.length === 0 && !loading && (
+      {messages.length === 0 && !streaming && (
         <div className="chat-empty">Send a message to start generating text.</div>
       )}
       {messages.map((msg, i) => (
         <div key={i} className={`chat-message chat-message--${msg.role}`}>
           <span className="chat-message-role">{msg.role === 'user' ? 'You' : 'GPT'}</span>
-          <p className="chat-message-content">{msg.content}</p>
+          <p className="chat-message-content">
+            {msg.content}
+            {isLastAssistantStreaming(i) && (
+              <span className="chat-cursor" aria-hidden="true">▌</span>
+            )}
+          </p>
         </div>
       ))}
-      {loading && (
-        <div className="chat-message chat-message--assistant chat-message--pending">
-          <span className="chat-message-role">GPT</span>
-          <p className="chat-message-content chat-loading">Generating...</p>
-        </div>
-      )}
-      {error && <div className="chat-error">{error}</div>}
+{error && <div className="chat-error">{error}</div>}
       <div ref={messagesEndRef} />
     </main>
   );
