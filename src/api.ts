@@ -77,33 +77,18 @@ export interface ChatRequest {
   top_k?: number;
 }
 
-export interface ChatResponse {
-  response: string;
-}
-
-export async function chat(req: ChatRequest): Promise<ChatResponse> {
-  const res = await fetch(`${API_BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok) throw new Error(`Chat failed: ${res.statusText}`);
-  const data = await res.json();
-  return data;
-}
-
 export async function chatStream(
   req: ChatRequest,
   onToken: (token: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/chat/stream`, {
+  const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
     signal,
   });
-  if (!res.ok) throw new Error(`Chat stream failed: ${res.statusText}`);
+  if (!res.ok) throw new Error(`Chat failed: ${res.statusText}`);
   if (!res.body) throw new Error('No response body');
 
   const reader = res.body.getReader();
