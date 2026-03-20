@@ -111,7 +111,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
   try {
     // 1. Tokenize
-    const tokenizeRes = await forwardPost('/tokenize/', { encoding: 'gpt2', text: message });
+    const tokenizeRes = await forwardPost('/tokenize/', { encoding: 'gpt2', text: message }, clientAbort.signal);
     if (!tokenizeRes.ok) {
       sendError('Tokenization failed');
       res.end();
@@ -162,7 +162,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         const tokenId = parseInt(trimmed, 10);
         if (isNaN(tokenId)) continue;
 
-        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] });
+        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] }, clientAbort.signal);
         if (!decodeRes.ok) {
           stopped = true;
           break;
@@ -183,7 +183,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     if (!stopped && lineBuffer.trim()) {
       const tokenId = parseInt(lineBuffer.trim(), 10);
       if (!isNaN(tokenId)) {
-        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] });
+        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] }, clientAbort.signal);
         if (decodeRes.ok) {
           const decoded = (await decodeRes.json()) as { text: string };
           const endIdx = decoded.text.indexOf('<|endoftext|>');

@@ -37,13 +37,7 @@ export function MessageList({ messages, streaming, error }: MessageListProps) {
           </p>
         </div>
       ))}
-      {streaming && messages[messages.length - 1]?.role !== 'assistant' && (
-        <div className="chat-message chat-message--assistant chat-message--pending">
-          <span className="chat-message-role">GPT</span>
-          <p className="chat-message-content chat-loading">Generating...</p>
-        </div>
-      )}
-      {error && <div className="chat-error">{error}</div>}
+{error && <div className="chat-error">{error}</div>}
       <div ref={messagesEndRef} />
     </main>
   );

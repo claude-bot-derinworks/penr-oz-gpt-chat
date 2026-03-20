@@ -96,6 +96,7 @@ export async function chatStream(
   let buffer = '';
 
   try {
+    let eventType = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -105,12 +106,21 @@ export async function chatStream(
       buffer = lines.pop() ?? '';
 
       for (const line of lines) {
+        if (line === '') {
+          // Blank line resets the current event type
+          eventType = '';
+          continue;
+        }
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim();
+          continue;
+        }
         if (!line.startsWith('data: ')) continue;
         const data = line.slice(6);
         if (data === '[DONE]') return;
         try {
           const parsed = JSON.parse(data) as { token?: string; error?: string };
-          if (parsed.error) throw new Error(parsed.error);
+          if (eventType === 'error' || parsed.error) throw new Error(parsed.error ?? 'Stream error');
           if (parsed.token !== undefined) onToken(parsed.token);
         } catch (e) {
           if (e instanceof SyntaxError) continue;

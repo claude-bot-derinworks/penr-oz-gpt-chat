@@ -21,11 +21,12 @@ function App() {
     const userMessage = input.trim();
     setInput('');
     setError(null);
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content: '' },
+    ]);
     setStreaming(true);
-
-    // Seed an empty assistant message that will grow as tokens arrive
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -53,13 +54,13 @@ function App() {
       if (err instanceof Error && err.name === 'AbortError') return;
       const message = err instanceof Error ? err.message : 'Request failed';
       setError(message);
-      // Remove the empty/partial assistant placeholder on error
+      // Remove the partial assistant message on error
       setMessages((prev) => {
-        const updated = [...prev];
-        if (updated[updated.length - 1]?.role === 'assistant' && updated[updated.length - 1].content === '') {
-          updated.pop();
+        const last = prev[prev.length - 1];
+        if (last?.role === 'assistant') {
+          return prev.slice(0, -1);
         }
-        return updated;
+        return prev;
       });
     } finally {
       abortRef.current = null;
