@@ -28,9 +28,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function forwardPost(targetPath: string, body: unknown): Promise<globalThis.Response> {
+async function forwardPost(targetPath: string, body: unknown, signal?: AbortSignal): Promise<globalThis.Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  signal?.addEventListener('abort', () => controller.abort());
 
   try {
     return await fetch(`${PREDICTION_SERVER_URL}${targetPath}`, {
@@ -119,20 +120,15 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     const tokenized = (await tokenizeRes.json()) as { tokens: number[] };
 
     // 2. Generate with stream: true — upstream yields one token integer per line
-    const generateRes = await fetch(`${PREDICTION_SERVER_URL}/generate/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model_id,
-        input: [tokenized.tokens],
-        block_size,
-        max_new_tokens,
-        temperature,
-        stream: true,
-        ...(top_k != null && { top_k }),
-      }),
-      signal: clientAbort.signal,
-    });
+    const generateRes = await forwardPost('/generate/', {
+      model_id,
+      input: [tokenized.tokens],
+      block_size,
+      max_new_tokens,
+      temperature,
+      stream: true,
+      ...(top_k != null && { top_k }),
+    }, clientAbort.signal);
 
     if (!generateRes.ok) {
       sendError('Generation failed');
