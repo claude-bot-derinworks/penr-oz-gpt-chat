@@ -150,7 +150,6 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     const TOKEN_FLUSH_INTERVAL_MS = 500;
 
     const flushTokenBuffer = async (): Promise<boolean> => {
-      if (tokenBuffer.length === 0) return false;
       const batch = tokenBuffer.splice(0);
       if (batch.length === 0) return false;
       const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: batch }, clientAbort.signal);
@@ -159,11 +158,11 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         return true;
       }
       const decoded: unknown = await decodeRes.json();
-      if (!decoded || typeof decoded !== 'object' || typeof (decoded as { text?: unknown }).text !== 'string') {
+      if (!decoded || typeof decoded !== 'object' || !('text' in decoded) || typeof decoded.text !== 'string') {
         sendError('Unexpected response from decode endpoint');
         return true;
       }
-      const text = (decoded as { text: string }).text;
+      const text = decoded.text;
       const endIdx = text.indexOf('<|endoftext|>');
       const piece = endIdx < 0 ? text : text.slice(0, endIdx);
       if (piece) sendEvent({ token: piece });
