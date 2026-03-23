@@ -148,13 +148,15 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     let stopped = false;
     const tokenBuffer: number[] = [];
     const TOKEN_FLUSH_INTERVAL_MS = 500;
-    let lastFlushTime = Date.now();
 
     const flushTokenBuffer = async (): Promise<boolean> => {
       if (tokenBuffer.length === 0) return false;
       const batch = tokenBuffer.splice(0);
       const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: batch }, clientAbort.signal);
-      if (!decodeRes.ok) return true;
+      if (!decodeRes.ok) {
+        sendError('Failed to decode token batch');
+        return true;
+      }
       const decoded = (await decodeRes.json()) as { text: string };
       const endIdx = decoded.text.indexOf('<|endoftext|>');
       const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
@@ -162,29 +164,34 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       return endIdx >= 0;
     };
 
-    while (!stopped) {
-      const { value, done } = await reader.read();
-      if (done) break;
+    // Periodic flush timer — fires every 500ms regardless of stream data arrival
+    const flushTimer = setInterval(async () => {
+      if (stopped) return;
+      const shouldStop = await flushTokenBuffer();
+      if (shouldStop) stopped = true;
+    }, TOKEN_FLUSH_INTERVAL_MS);
 
-      lineBuffer += textDecoder.decode(value, { stream: true });
-      const lines = lineBuffer.split('\n');
-      lineBuffer = lines.pop() ?? '';
+    try {
+      while (!stopped) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+        lineBuffer += textDecoder.decode(value, { stream: true });
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() ?? '';
 
-        const tokenId = parseInt(trimmed, 10);
-        if (isNaN(tokenId)) continue;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
 
-        tokenBuffer.push(tokenId);
+          const tokenId = parseInt(trimmed, 10);
+          if (isNaN(tokenId)) continue;
+
+          tokenBuffer.push(tokenId);
+        }
       }
-
-      const now = Date.now();
-      if (now - lastFlushTime >= TOKEN_FLUSH_INTERVAL_MS) {
-        stopped = await flushTokenBuffer();
-        lastFlushTime = now;
-      }
+    } finally {
+      clearInterval(flushTimer);
     }
 
     // Collect any remaining partial line and flush all buffered tokens
