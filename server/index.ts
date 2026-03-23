@@ -157,19 +157,38 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         sendError('Failed to decode token batch');
         return true;
       }
-      const decoded = (await decodeRes.json()) as { text: string };
-      const endIdx = decoded.text.indexOf('<|endoftext|>');
-      const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
+      const decoded: unknown = await decodeRes.json();
+      if (!decoded || typeof decoded !== 'object' || typeof (decoded as { text?: unknown }).text !== 'string') {
+        sendError('Unexpected response from decode endpoint');
+        return true;
+      }
+      const text = (decoded as { text: string }).text;
+      const endIdx = text.indexOf('<|endoftext|>');
+      const piece = endIdx < 0 ? text : text.slice(0, endIdx);
       if (piece) sendEvent({ token: piece });
       return endIdx >= 0;
     };
 
-    // Periodic flush timer — fires every 500ms regardless of stream data arrival
-    const flushTimer = setInterval(async () => {
-      if (stopped) return;
-      const shouldStop = await flushTokenBuffer();
-      if (shouldStop) stopped = true;
-    }, TOKEN_FLUSH_INTERVAL_MS);
+    // Periodic flush timer — fires every 500ms regardless of stream data arrival.
+    // isFlushing prevents concurrent executions when flush takes longer than the interval.
+    const flushTimer = (() => {
+      let isFlushing = false;
+      return setInterval(async () => {
+        if (stopped || isFlushing) return;
+        isFlushing = true;
+        try {
+          const shouldStop = await flushTokenBuffer();
+          if (shouldStop) stopped = true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown error during flush';
+          console.error('Error during periodic token flush:', msg);
+          sendError('An error occurred while decoding tokens.');
+          stopped = true;
+        } finally {
+          isFlushing = false;
+        }
+      }, TOKEN_FLUSH_INTERVAL_MS);
+    })();
 
     try {
       while (!stopped) {
