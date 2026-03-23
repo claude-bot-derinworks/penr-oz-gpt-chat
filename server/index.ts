@@ -152,6 +152,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     const flushTokenBuffer = async (): Promise<boolean> => {
       if (tokenBuffer.length === 0) return false;
       const batch = tokenBuffer.splice(0);
+      if (batch.length === 0) return false;
       const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: batch }, clientAbort.signal);
       if (!decodeRes.ok) {
         sendError('Failed to decode token batch');
