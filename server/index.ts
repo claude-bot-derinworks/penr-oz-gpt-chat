@@ -171,22 +171,26 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
     // Periodic flush timer — fires every 500ms regardless of stream data arrival.
     // isFlushing prevents concurrent executions when flush takes longer than the interval.
+    // timerFlushPromise tracks any in-flight flush so the end-of-stream path can await it.
+    let timerFlushPromise: Promise<void> | null = null;
     const flushTimer = (() => {
       let isFlushing = false;
-      return setInterval(async () => {
+      return setInterval(() => {
         if (stopped || isFlushing) return;
         isFlushing = true;
-        try {
-          const shouldStop = await flushTokenBuffer();
-          if (shouldStop) stopped = true;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Unknown error during flush';
-          console.error('Error during periodic token flush:', msg);
-          sendError('An error occurred while decoding tokens.');
-          stopped = true;
-        } finally {
-          isFlushing = false;
-        }
+        timerFlushPromise = (async () => {
+          try {
+            const shouldStop = await flushTokenBuffer();
+            if (shouldStop) stopped = true;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Unknown error during flush';
+            console.error('Error during periodic token flush:', msg);
+            sendError('An error occurred while decoding tokens.');
+            stopped = true;
+          } finally {
+            isFlushing = false;
+          }
+        })();
       }, TOKEN_FLUSH_INTERVAL_MS);
     })();
 
@@ -211,6 +215,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       }
     } finally {
       clearInterval(flushTimer);
+      if (timerFlushPromise) await timerFlushPromise;
     }
 
     // Collect any remaining partial line and flush all buffered tokens
