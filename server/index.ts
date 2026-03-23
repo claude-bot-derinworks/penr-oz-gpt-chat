@@ -141,56 +141,90 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    // 3. Read token integers line-by-line, decode each, and forward as SSE
+    // 3. Read token integers line-by-line, buffer them, and flush every ~500ms
     const reader = generateRes.body.getReader();
     const textDecoder = new TextDecoder();
     let lineBuffer = '';
     let stopped = false;
+    const tokenBuffer: number[] = [];
+    const TOKEN_FLUSH_INTERVAL_MS = 500;
 
-    while (!stopped) {
-      const { value, done } = await reader.read();
-      if (done) break;
+    const flushTokenBuffer = async (): Promise<boolean> => {
+      const batch = tokenBuffer.splice(0);
+      if (batch.length === 0) return false;
+      const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: batch }, clientAbort.signal);
+      if (!decodeRes.ok) {
+        sendError('Failed to decode token batch');
+        return true;
+      }
+      const decoded: unknown = await decodeRes.json();
+      if (!decoded || typeof decoded !== 'object' || !('text' in decoded) || typeof decoded.text !== 'string') {
+        sendError('Unexpected response from decode endpoint');
+        return true;
+      }
+      const text = decoded.text;
+      const endIdx = text.indexOf('<|endoftext|>');
+      const piece = endIdx < 0 ? text : text.slice(0, endIdx);
+      if (piece) sendEvent({ token: piece });
+      return endIdx >= 0;
+    };
 
-      lineBuffer += textDecoder.decode(value, { stream: true });
-      const lines = lineBuffer.split('\n');
-      lineBuffer = lines.pop() ?? '';
+    // Periodic flush timer — fires every 500ms regardless of stream data arrival.
+    // isFlushing prevents concurrent executions when flush takes longer than the interval.
+    // timerFlushPromise tracks any in-flight flush so the end-of-stream path can await it.
+    let timerFlushPromise: Promise<void> | null = null;
+    const flushTimer = (() => {
+      let isFlushing = false;
+      return setInterval(() => {
+        if (stopped || isFlushing) return;
+        isFlushing = true;
+        timerFlushPromise = (async () => {
+          try {
+            const shouldStop = await flushTokenBuffer();
+            if (shouldStop) stopped = true;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Unknown error during flush';
+            console.error('Error during periodic token flush:', msg);
+            sendError('An error occurred while decoding tokens.');
+            stopped = true;
+          } finally {
+            isFlushing = false;
+          }
+        })();
+      }, TOKEN_FLUSH_INTERVAL_MS);
+    })();
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+    try {
+      while (!stopped) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-        const tokenId = parseInt(trimmed, 10);
-        if (isNaN(tokenId)) continue;
+        lineBuffer += textDecoder.decode(value, { stream: true });
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() ?? '';
 
-        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] }, clientAbort.signal);
-        if (!decodeRes.ok) {
-          stopped = true;
-          break;
-        }
-        const decoded = (await decodeRes.json()) as { text: string };
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
 
-        const endIdx = decoded.text.indexOf('<|endoftext|>');
-        const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
-        if (piece) sendEvent({ token: piece });
-        if (endIdx >= 0) {
-          stopped = true;
-          break;
+          const tokenId = parseInt(trimmed, 10);
+          if (isNaN(tokenId)) continue;
+
+          tokenBuffer.push(tokenId);
         }
       }
+    } finally {
+      clearInterval(flushTimer);
+      if (timerFlushPromise) await timerFlushPromise;
     }
 
-    // Flush any remaining buffered line (stream may not end with \n)
+    // Collect any remaining partial line and flush all buffered tokens
     if (!stopped && lineBuffer.trim()) {
       const tokenId = parseInt(lineBuffer.trim(), 10);
-      if (!isNaN(tokenId)) {
-        const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: [tokenId] }, clientAbort.signal);
-        if (decodeRes.ok) {
-          const decoded = (await decodeRes.json()) as { text: string };
-          const endIdx = decoded.text.indexOf('<|endoftext|>');
-          const piece = endIdx < 0 ? decoded.text : decoded.text.slice(0, endIdx);
-          if (piece) sendEvent({ token: piece });
-        }
-      }
+      if (!isNaN(tokenId)) tokenBuffer.push(tokenId);
+    }
+    if (!stopped) {
+      await flushTokenBuffer();
     }
 
     sendDone();
