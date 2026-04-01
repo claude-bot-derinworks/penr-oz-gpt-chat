@@ -79,7 +79,7 @@ export interface ChatRequest {
 
 export async function chatStream(
   req: ChatRequest,
-  onToken: (token: string) => void,
+  onUpdate: (fullText: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/chat`, {
@@ -99,9 +99,13 @@ export async function chatStream(
     let eventType = '';
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      
+      if (value) {
+        buffer += decoder.decode(value, { stream: !done });
+      } else if (done) {
+        buffer += decoder.decode(); // flush any remaining bytes
+      }
 
-      buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
 
@@ -119,13 +123,14 @@ export async function chatStream(
         const data = line.slice(6);
         if (data === '[DONE]') return;
         try {
-          const parsed = JSON.parse(data) as { token?: string; error?: string };
+          const parsed = JSON.parse(data) as { text?: string; error?: string };
           if (eventType === 'error' || parsed.error) throw new Error(parsed.error ?? 'Stream error');
-          if (parsed.token !== undefined) onToken(parsed.token);
+          if (parsed.text !== undefined) onUpdate(parsed.text);
         } catch (e) {
           if (e instanceof SyntaxError) continue;
           throw e;
         }
+        if (done) break;
       }
     }
   } finally {

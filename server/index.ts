@@ -147,12 +147,15 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     let lineBuffer = '';
     let stopped = false;
     const tokenBuffer: number[] = [];
+    const cumulativeTokens: number[] = [];
     const TOKEN_FLUSH_INTERVAL_MS = 500;
 
     const flushTokenBuffer = async (): Promise<boolean> => {
       const batch = tokenBuffer.splice(0);
       if (batch.length === 0) return false;
-      const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: batch }, clientAbort.signal);
+      cumulativeTokens.push(...batch);
+
+      const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: cumulativeTokens }, clientAbort.signal);
       if (!decodeRes.ok) {
         sendError('Failed to decode token batch');
         return true;
@@ -165,7 +168,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       const text = decoded.text;
       const endIdx = text.indexOf('<|endoftext|>');
       const piece = endIdx < 0 ? text : text.slice(0, endIdx);
-      if (piece) sendEvent({ token: piece });
+      if (piece) sendEvent({ text: piece });
       return endIdx >= 0;
     };
 
@@ -197,9 +200,13 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     try {
       while (!stopped) {
         const { value, done } = await reader.read();
-        if (done) break;
 
-        lineBuffer += textDecoder.decode(value, { stream: true });
+        if (value) {
+          lineBuffer += textDecoder.decode(value, { stream: !done });
+        } else if (done) {
+          lineBuffer += textDecoder.decode();
+        }
+
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() ?? '';
 
@@ -212,6 +219,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
           tokenBuffer.push(tokenId);
         }
+        if (done) break;
       }
     } finally {
       clearInterval(flushTimer);

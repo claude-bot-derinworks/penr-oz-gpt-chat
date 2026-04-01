@@ -40,11 +40,11 @@ function App() {
           max_new_tokens: maxTokens,
           temperature: 1.0,
         },
-        (token) => {
+        (fullText) => {
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated[updated.length - 1];
-            updated[updated.length - 1] = { ...last, content: last.content + token };
+            updated[updated.length - 1] = { ...last, content: fullText };
             return updated;
           });
         },
