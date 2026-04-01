@@ -37,15 +37,24 @@ See [API.md](API.md) for the full request/response contracts between the React c
     ```
 
 4. **Run**:
-   - **Start the development server**:
+   - **Launch React client** (Vite dev server only):
      ```bash
-     npm run dev
+     npm start
      ```
      App running at http://localhost:3000
-   - **Build for production**:
+   - **Build for production** (type-check + Vite bundle):
      ```bash
      npm run build
      ```
+   - **Start the proxy server** (Express on port 3001):
+     ```bash
+     npm run server
+     ```
+   - **Run client and server together** (recommended for development):
+     ```bash
+     npm run dev
+     ```
+     React client at http://localhost:3000, proxy server at http://localhost:3001
    - **Preview the production build**:
      ```bash
      npm run preview

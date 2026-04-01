@@ -4,14 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "start": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "server:watch": "tsx watch server/index.ts",
     "server:build": "tsc -p server/tsconfig.json",
-    "server:start": "node dist-server/index.js"
+    "server:start": "node dist-server/index.js",
+    "dev": "concurrently --kill-others-on-fail \"npm:start\" \"npm:server\""
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -28,6 +29,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
