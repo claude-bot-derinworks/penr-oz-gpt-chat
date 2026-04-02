@@ -12,7 +12,7 @@
     "server:watch": "tsx watch server/index.ts",
     "server:build": "tsc -p server/tsconfig.json",
     "server:start": "node dist-server/index.js",
-    "dev": "concurrently --kill-others-on-fail \"npm:start\" \"npm:server\""
+    "dev": "concurrently -n \"client,server\" -c \"cyan,magenta\" --kill-others-on-fail \"npm:start\" \"npm:server:watch\""
   },
   "dependencies": {
     "cors": "^2.8.5",

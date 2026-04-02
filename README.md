@@ -54,7 +54,7 @@ See [API.md](API.md) for the full request/response contracts between the React c
      ```bash
      npm run dev
      ```
-     React client at http://localhost:3000, proxy server at http://localhost:3001
+     React client at http://localhost:3000, proxy server at http://localhost:3001 (auto-restarts on server file changes)
    - **Preview the production build**:
      ```bash
      npm run preview
