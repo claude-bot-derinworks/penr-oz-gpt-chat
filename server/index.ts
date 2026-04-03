@@ -85,11 +85,13 @@ interface ChatRequest {
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
+  eot_token?: string;
 }
 
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const { message, model_id, block_size, max_new_tokens, temperature, top_k } =
+  const { message, model_id, block_size, max_new_tokens, temperature, top_k, eot_token } =
     req.body as ChatRequest;
+  const stopToken = eot_token ?? '<|endoftext|>';
 
   if (!message || !model_id) {
     res.status(400).json({ error: 'message and model_id are required' });
@@ -127,6 +129,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       max_new_tokens,
       temperature,
       stream: true,
+      stop_token: stopToken,
       ...(top_k != null && { top_k }),
     }, clientAbort.signal);
 
@@ -166,7 +169,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         return true;
       }
       const text = decoded.text;
-      const endIdx = text.indexOf('<|endoftext|>');
+      const endIdx = text.indexOf(stopToken);
       const piece = endIdx < 0 ? text : text.slice(0, endIdx);
       if (piece) sendEvent({ text: piece });
       return endIdx >= 0;
@@ -263,7 +266,13 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 // Start
 // ---------------------------------------------------------------------------
 
-app.listen(PORT, () => {
-  console.log(`Proxy server listening on port ${PORT}`);
-  console.log(`Forwarding to prediction server at ${PREDICTION_SERVER_URL}`);
-});
+export { app };
+
+// Only start listening when this file is the main entry point
+const isMain = process.argv[1] && (await import('url')).fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
+  app.listen(PORT, () => {
+    console.log(`Proxy server listening on port ${PORT}`);
+    console.log(`Forwarding to prediction server at ${PREDICTION_SERVER_URL}`);
+  });
+}

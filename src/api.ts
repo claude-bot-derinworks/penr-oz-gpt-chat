@@ -75,6 +75,7 @@ export interface ChatRequest {
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
+  eot_token?: string;
 }
 
 export async function chatStream(
