@@ -1,4 +1,4 @@
-name: CI for React Client
+name: CI
 
 on:
   push:
@@ -29,8 +29,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Build
+      - name: Build client
         run: npm run build
+
+      - name: Build server
+        run: npm run server:build
 
       - name: Test
         run: npm test
