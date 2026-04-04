@@ -59,3 +59,15 @@ See [API.md](API.md) for the full request/response contracts between the React c
      ```bash
      npm run preview
      ```
+
+5. **Testing**:
+   - **Run all unit tests**:
+     ```bash
+     npm test
+     ```
+   - **Run tests with coverage report** (requires ≥ 80% line/function coverage on core modules):
+     ```bash
+     npm run test:coverage
+     ```
+   - Tests live alongside source files (`src/api.test.ts`) and in the server directory (`server/index.test.ts`).
+   - The test stack uses [Vitest](https://vitest.dev/) with [Supertest](https://github.com/ladjs/supertest) for HTTP assertions and built-in `vi.fn()` mocks for dependency isolation.
