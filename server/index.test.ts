@@ -58,6 +58,26 @@ async function collectSseText(res: request.Response): Promise<string[]> {
   return pieces
 }
 
+/** Perform a chat POST and collect the raw SSE response body. */
+async function doChat(body: object): Promise<request.Response> {
+  return request(app)
+    .post('/api/chat')
+    .send(body)
+    .buffer(true)
+    .parse((res, cb) => {
+      let data = ''
+      res.on('data', (chunk: Buffer) => { data += chunk.toString() })
+      res.on('end', () => cb(null, data))
+    })
+}
+
+/** Find a mock fetch call whose URL contains the given substring. */
+function findMockCallByUrl(urlSubstring: string): [string, RequestInit] {
+  const call = mockFetch.mock.calls.find(([u]) => String(u).includes(urlSubstring))
+  if (!call) throw new Error(`No mock fetch call found for URL containing "${urlSubstring}"`)
+  return call as [string, RequestInit]
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -85,9 +105,8 @@ describe('/api/chat – EOT token behaviour', () => {
         res.on('end', () => cb(null, data))
       })
 
-    // Assert – second call is the generate call
-    const generateCall = mockFetch.mock.calls[1]
-    const generateBody = JSON.parse(generateCall[1].body as string)
+    // Assert – locate the generate call by URL
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody.stop_token).toBe('<|endoftext|>')
   })
 
@@ -110,8 +129,7 @@ describe('/api/chat – EOT token behaviour', () => {
       })
 
     // Assert
-    const generateCall = mockFetch.mock.calls[1]
-    const generateBody = JSON.parse(generateCall[1].body as string)
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody.stop_token).toBe('<|custom_eot|>')
   })
 
@@ -232,19 +250,6 @@ describe('/api/chat – request validation', () => {
 describe('/api/chat – upstream error handling', () => {
   beforeEach(() => mockFetch.mockReset())
 
-  /** Helper: perform a chat POST and collect the raw SSE response text. */
-  async function doChat(body: object): Promise<request.Response> {
-    return request(app)
-      .post('/api/chat')
-      .send(body)
-      .buffer(true)
-      .parse((res, cb) => {
-        let data = ''
-        res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-        res.on('end', () => cb(null, data))
-      })
-  }
-
   const validBody = { message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 }
 
   it('sends SSE error event when tokenization fails', async () => {
@@ -290,18 +295,6 @@ describe('/api/chat – upstream error handling', () => {
 describe('/api/chat – streaming and parameter forwarding', () => {
   beforeEach(() => mockFetch.mockReset())
 
-  async function doChat(body: object): Promise<request.Response> {
-    return request(app)
-      .post('/api/chat')
-      .send(body)
-      .buffer(true)
-      .parse((res, cb) => {
-        let data = ''
-        res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-        res.on('end', () => cb(null, data))
-      })
-  }
-
   it('forwards top_k to the upstream generate call when provided', async () => {
     mockFetch
       .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))
@@ -310,7 +303,7 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
     await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, top_k: 5 })
 
-    const generateBody = JSON.parse(mockFetch.mock.calls[1][1].body as string)
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody.top_k).toBe(5)
   })
 
@@ -322,7 +315,7 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
     await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
 
-    const generateBody = JSON.parse(mockFetch.mock.calls[1][1].body as string)
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody).not.toHaveProperty('top_k')
   })
 
@@ -336,7 +329,7 @@ describe('/api/chat – streaming and parameter forwarding', () => {
     const pieces = await collectSseText(res)
 
     // Decode is called with only the generated tokens (cumulative, not including input)
-    const decodeBody = JSON.parse(mockFetch.mock.calls[2][1].body as string)
+    const decodeBody = JSON.parse(findMockCallByUrl('/decode/')[1].body as string)
     expect(decodeBody.tokens).toEqual([3, 4])
     expect(pieces).toEqual(['Hello world'])
   })
