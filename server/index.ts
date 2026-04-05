@@ -67,6 +67,9 @@ for (const proxyPath of PROXY_PATHS) {
     try {
       const upstream_res = await forwardPost(upstream, req.body);
       const data = await upstream_res.json();
+      if (!upstream_res.ok) {
+        console.error(`API error ${upstream_res.status} from ${upstream}:`, JSON.stringify(data));
+      }
       res.status(upstream_res.status).json(data);
     } catch (err) {
       handleProxyError(err, res);
@@ -115,6 +118,8 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     // 1. Tokenize
     const tokenizeRes = await forwardPost('/tokenize/', { encoding: 'gpt2', text: message }, clientAbort.signal);
     if (!tokenizeRes.ok) {
+      const errBody = await tokenizeRes.json().catch(() => null);
+      console.error(`API error ${tokenizeRes.status} from /tokenize/:`, JSON.stringify(errBody));
       sendError('Tokenization failed');
       res.end();
       return;
@@ -134,6 +139,8 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     }, clientAbort.signal);
 
     if (!generateRes.ok) {
+      const errBody = await generateRes.json().catch(() => null);
+      console.error(`API error ${generateRes.status} from /generate/:`, JSON.stringify(errBody));
       sendError('Generation failed');
       res.end();
       return;
