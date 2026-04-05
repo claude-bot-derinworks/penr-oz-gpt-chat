@@ -87,14 +87,12 @@ describe('/api/chat – EOT token behaviour', () => {
     mockFetch.mockReset()
   })
 
-  it('passes stop_token as integer token id defaulting to 50256 (<|endoftext|>) when eot_token is not provided', async () => {
-    // Arrange
+  it('passes stop_token defaulting to 50256 when eot_token_id is not provided', async () => {
     mockFetch
       .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize
       .mockResolvedValueOnce(makeStreamResponse(['3', '4']))                 // generate
       .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello world' }))     // decode
 
-    // Act
     await request(app)
       .post('/api/chat')
       .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
@@ -105,22 +103,19 @@ describe('/api/chat – EOT token behaviour', () => {
         res.on('end', () => cb(null, data))
       })
 
-    // Assert – stop_token must be the integer GPT-2 token id for <|endoftext|>
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody.stop_token).toBe(50256)
   })
 
-  it('passes the provided eot_token as integer stop_token id to the upstream generate endpoint', async () => {
-    // Arrange – <|endoftext|> is the only known GPT-2 special token; unknown tokens fall back to it
+  it('forwards client-supplied eot_token_id as stop_token to the upstream generate endpoint', async () => {
     mockFetch
       .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize
       .mockResolvedValueOnce(makeStreamResponse(['3']))                      // generate
       .mockResolvedValueOnce(makeJsonResponse({ text: 'Hi' }))              // decode
 
-    // Act
     await request(app)
       .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token: '<|endoftext|>' })
+      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token_id: 12345 })
       .buffer(true)
       .parse((res, cb) => {
         let data = ''
@@ -128,9 +123,8 @@ describe('/api/chat – EOT token behaviour', () => {
         res.on('end', () => cb(null, data))
       })
 
-    // Assert
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
-    expect(generateBody.stop_token).toBe(50256)
+    expect(generateBody.stop_token).toBe(12345)
   })
 
   it('stops streaming and strips output at the default <|endoftext|> token', async () => {
@@ -156,16 +150,17 @@ describe('/api/chat – EOT token behaviour', () => {
     expect(pieces).toEqual(['Hello'])
   })
 
-  it('falls back to <|endoftext|> and strips on it when an unknown eot_token is provided', async () => {
-    // Unknown tokens not in GPT2_TOKEN_IDS cause both stopToken and stopTokenId to fall back to <|endoftext|>
+  it('strips output at the eot_token string independently of eot_token_id', async () => {
+    // eot_token (string) and eot_token_id (integer) are independent — the client is responsible
+    // for keeping them consistent; the server uses each for its own purpose
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))                           // tokenize
-      .mockResolvedValueOnce(makeStreamResponse(['2']))                                   // generate
-      .mockResolvedValueOnce(makeJsonResponse({ text: 'Done<|endoftext|>extra' }))        // decode
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))                      // tokenize
+      .mockResolvedValueOnce(makeStreamResponse(['2']))                              // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'Done<|stop|>extra' }))       // decode
 
     const res = await request(app)
       .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 5, temperature: 1.0, eot_token: '<|stop|>' })
+      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 5, temperature: 1.0, eot_token: '<|stop|>', eot_token_id: 99999 })
       .buffer(true)
       .parse((res, cb) => {
         let data = ''
@@ -175,6 +170,10 @@ describe('/api/chat – EOT token behaviour', () => {
 
     const pieces = await collectSseText(res)
     expect(pieces).toEqual(['Done'])
+
+    // Verify the integer id was forwarded to generate, not derived from the string
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody.stop_token).toBe(99999)
   })
 
   it('returns 400 when message is missing', async () => {
