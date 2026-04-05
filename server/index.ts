@@ -66,7 +66,10 @@ for (const proxyPath of PROXY_PATHS) {
   app.post(proxyPath, async (req: Request, res: Response) => {
     try {
       const upstream_res = await forwardPost(upstream, req.body);
-      const data = await upstream_res.json();
+      const data = await upstream_res.json().catch(() => null);
+      if (!upstream_res.ok) {
+        console.error(`API error ${upstream_res.status} from ${upstream}:`, JSON.stringify(data));
+      }
       res.status(upstream_res.status).json(data);
     } catch (err) {
       handleProxyError(err, res);
@@ -81,17 +84,17 @@ for (const proxyPath of PROXY_PATHS) {
 interface ChatRequest {
   message: string;
   model_id: string;
+  encoding: string;
   block_size: number;
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
-  eot_token?: string;
+  eot_token: string;
 }
 
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const { message, model_id, block_size, max_new_tokens, temperature, top_k, eot_token } =
+  const { message, model_id, encoding, block_size, max_new_tokens, temperature, top_k, eot_token } =
     req.body as ChatRequest;
-  const stopToken = eot_token ?? '<|endoftext|>';
 
   if (!message || !model_id) {
     res.status(400).json({ error: 'message and model_id are required' });
@@ -112,28 +115,34 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   res.on('close', () => clientAbort.abort());
 
   try {
-    // 1. Tokenize
-    const tokenizeRes = await forwardPost('/tokenize/', { encoding: 'gpt2', text: message }, clientAbort.signal);
+    // 1. Tokenize message + eot_token together so the last token id is the stop token id
+    const tokenizeRes = await forwardPost('/tokenize/', { encoding, text: message + eot_token }, clientAbort.signal);
     if (!tokenizeRes.ok) {
+      const errBody = await tokenizeRes.json().catch(() => null);
+      console.error(`API error ${tokenizeRes.status} from /tokenize/:`, JSON.stringify(errBody));
       sendError('Tokenization failed');
       res.end();
       return;
     }
-    const tokenized = (await tokenizeRes.json()) as { tokens: number[] };
+    const { tokens } = (await tokenizeRes.json()) as { tokens: number[] };
+    const stopTokenId = tokens[tokens.length - 1];
+    const messageTokens = tokens.slice(0, -1);
 
     // 2. Generate with stream: true — upstream yields one token integer per line
     const generateRes = await forwardPost('/generate/', {
       model_id,
-      input: [tokenized.tokens],
+      input: [messageTokens],
       block_size,
       max_new_tokens,
       temperature,
       stream: true,
-      stop_token: stopToken,
+      stop_token: stopTokenId,
       ...(top_k != null && { top_k }),
     }, clientAbort.signal);
 
     if (!generateRes.ok) {
+      const errBody = await generateRes.json().catch(() => null);
+      console.error(`API error ${generateRes.status} from /generate/:`, JSON.stringify(errBody));
       sendError('Generation failed');
       res.end();
       return;
@@ -169,7 +178,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         return true;
       }
       const text = decoded.text;
-      const endIdx = text.indexOf(stopToken);
+      const endIdx = text.indexOf(eot_token);
       const piece = endIdx < 0 ? text : text.slice(0, endIdx);
       if (piece) sendEvent({ text: piece });
       return endIdx >= 0;

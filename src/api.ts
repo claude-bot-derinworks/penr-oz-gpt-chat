@@ -71,11 +71,12 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
 export interface ChatRequest {
   message: string;
   model_id: string;
+  encoding: string;
   block_size: number;
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
-  eot_token?: string;
+  eot_token: string;
 }
 
 export async function chatStream(
