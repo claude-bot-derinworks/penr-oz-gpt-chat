@@ -66,7 +66,7 @@ for (const proxyPath of PROXY_PATHS) {
   app.post(proxyPath, async (req: Request, res: Response) => {
     try {
       const upstream_res = await forwardPost(upstream, req.body);
-      const data = await upstream_res.json();
+      const data = await upstream_res.json().catch(() => null);
       if (!upstream_res.ok) {
         console.error(`API error ${upstream_res.status} from ${upstream}:`, JSON.stringify(data));
       }
@@ -99,8 +99,8 @@ const GPT2_TOKEN_IDS: Record<string, number> = {
 app.post('/api/chat', async (req: Request, res: Response) => {
   const { message, model_id, block_size, max_new_tokens, temperature, top_k, eot_token } =
     req.body as ChatRequest;
-  const stopToken = eot_token ?? '<|endoftext|>';
-  const stopTokenId = GPT2_TOKEN_IDS[stopToken] ?? GPT2_TOKEN_IDS['<|endoftext|>'];
+  const stopToken = (eot_token && GPT2_TOKEN_IDS[eot_token] !== undefined) ? eot_token : '<|endoftext|>';
+  const stopTokenId = GPT2_TOKEN_IDS[stopToken];
 
   if (!message || !model_id) {
     res.status(400).json({ error: 'message and model_id are required' });

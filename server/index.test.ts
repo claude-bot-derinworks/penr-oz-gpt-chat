@@ -156,14 +156,13 @@ describe('/api/chat – EOT token behaviour', () => {
     expect(pieces).toEqual(['Hello'])
   })
 
-  it('stops streaming and strips output at a custom eot_token', async () => {
-    // Arrange
+  it('falls back to <|endoftext|> and strips on it when an unknown eot_token is provided', async () => {
+    // Unknown tokens not in GPT2_TOKEN_IDS cause both stopToken and stopTokenId to fall back to <|endoftext|>
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))                     // tokenize
-      .mockResolvedValueOnce(makeStreamResponse(['2']))                             // generate
-      .mockResolvedValueOnce(makeJsonResponse({ text: 'Done<|stop|>extra' }))      // decode
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))                           // tokenize
+      .mockResolvedValueOnce(makeStreamResponse(['2']))                                   // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'Done<|endoftext|>extra' }))        // decode
 
-    // Act
     const res = await request(app)
       .post('/api/chat')
       .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 5, temperature: 1.0, eot_token: '<|stop|>' })
@@ -174,7 +173,6 @@ describe('/api/chat – EOT token behaviour', () => {
         res.on('end', () => cb(null, data))
       })
 
-    // Assert
     const pieces = await collectSseText(res)
     expect(pieces).toEqual(['Done'])
   })
