@@ -157,9 +157,11 @@ describe('chatStream', () => {
   const req: ChatRequest = {
     message: 'Hello',
     model_id: 'gpt2',
+    encoding: 'gpt2',
     block_size: 64,
     max_new_tokens: 20,
     temperature: 1.0,
+    eot_token: '<|endoftext|>',
   }
 
   it('throws when the response is not ok', async () => {
