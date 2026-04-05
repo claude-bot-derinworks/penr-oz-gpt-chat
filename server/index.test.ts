@@ -87,7 +87,7 @@ describe('/api/chat – EOT token behaviour', () => {
     mockFetch.mockReset()
   })
 
-  it('passes stop_token defaulting to <|endoftext|> when eot_token is not provided', async () => {
+  it('passes stop_token as integer token id defaulting to 50256 (<|endoftext|>) when eot_token is not provided', async () => {
     // Arrange
     mockFetch
       .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize
@@ -105,13 +105,13 @@ describe('/api/chat – EOT token behaviour', () => {
         res.on('end', () => cb(null, data))
       })
 
-    // Assert – locate the generate call by URL
+    // Assert – stop_token must be the integer GPT-2 token id for <|endoftext|>
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
-    expect(generateBody.stop_token).toBe('<|endoftext|>')
+    expect(generateBody.stop_token).toBe(50256)
   })
 
-  it('passes the provided eot_token as stop_token to the upstream generate endpoint', async () => {
-    // Arrange
+  it('passes the provided eot_token as integer stop_token id to the upstream generate endpoint', async () => {
+    // Arrange – <|endoftext|> is the only known GPT-2 special token; unknown tokens fall back to it
     mockFetch
       .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize
       .mockResolvedValueOnce(makeStreamResponse(['3']))                      // generate
@@ -120,7 +120,7 @@ describe('/api/chat – EOT token behaviour', () => {
     // Act
     await request(app)
       .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token: '<|custom_eot|>' })
+      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token: '<|endoftext|>' })
       .buffer(true)
       .parse((res, cb) => {
         let data = ''
@@ -130,7 +130,7 @@ describe('/api/chat – EOT token behaviour', () => {
 
     // Assert
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
-    expect(generateBody.stop_token).toBe('<|custom_eot|>')
+    expect(generateBody.stop_token).toBe(50256)
   })
 
   it('stops streaming and strips output at the default <|endoftext|> token', async () => {
@@ -363,4 +363,3 @@ describe('/api/chat – streaming and parameter forwarding', () => {
     expect(res.body as string).not.toContain('event: error')
   })
 })
-

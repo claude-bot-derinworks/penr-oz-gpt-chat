@@ -91,10 +91,16 @@ interface ChatRequest {
   eot_token?: string;
 }
 
+// GPT-2 special token ids for known end-of-text tokens
+const GPT2_TOKEN_IDS: Record<string, number> = {
+  '<|endoftext|>': 50256,
+};
+
 app.post('/api/chat', async (req: Request, res: Response) => {
   const { message, model_id, block_size, max_new_tokens, temperature, top_k, eot_token } =
     req.body as ChatRequest;
   const stopToken = eot_token ?? '<|endoftext|>';
+  const stopTokenId = GPT2_TOKEN_IDS[stopToken] ?? GPT2_TOKEN_IDS['<|endoftext|>'];
 
   if (!message || !model_id) {
     res.status(400).json({ error: 'message and model_id are required' });
@@ -134,7 +140,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       max_new_tokens,
       temperature,
       stream: true,
-      stop_token: stopToken,
+      stop_token: stopTokenId,  // prediction server expects an integer token id
       ...(top_k != null && { top_k }),
     }, clientAbort.signal);
 
