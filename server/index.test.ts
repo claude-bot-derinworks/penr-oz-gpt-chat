@@ -39,7 +39,6 @@ function makeJsonResponse(data: unknown, status = 200): Response {
 /**
  * Read a supertest SSE response (text/event-stream) to completion and return
  * all collected text pieces from `data:` events.
- * When using a custom `.parse()` callback the raw body is stored in `res.body`.
  */
 async function collectSseText(res: request.Response): Promise<string[]> {
   const body = (typeof res.body === 'string' ? res.body : res.text) ?? ''
@@ -78,6 +77,9 @@ function findMockCallByUrl(urlSubstring: string): [string, RequestInit] {
   return call as [string, RequestInit]
 }
 
+// Base chat body — client is responsible for supplying encoding and eot_token
+const BASE_BODY = { message: 'Hi', model_id: 'm1', encoding: 'gpt2', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token: '<|endoftext|>' }
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -87,100 +89,67 @@ describe('/api/chat – EOT token behaviour', () => {
     mockFetch.mockReset()
   })
 
-  it('passes stop_token defaulting to 50256 when eot_token_id is not provided', async () => {
+  it('tokenizes message+eot_token together and uses the last token id as stop_token', async () => {
+    // tokenize('Hi<|endoftext|>') → [1, 2, 50256]; server splits: messageTokens=[1,2], stopTokenId=50256
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize
-      .mockResolvedValueOnce(makeStreamResponse(['3', '4']))                 // generate
-      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello world' }))     // decode
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2, 50256] }))   // tokenize message+eot
+      .mockResolvedValueOnce(makeStreamResponse(['3']))                      // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello' }))           // decode
 
-    await request(app)
-      .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
-      .buffer(true)
-      .parse((res, cb) => {
-        let data = ''
-        res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-        res.on('end', () => cb(null, data))
-      })
+    await doChat(BASE_BODY)
+
+    const tokenizeBody = JSON.parse(findMockCallByUrl('/tokenize/')[1].body as string)
+    expect(tokenizeBody.text).toBe('Hi<|endoftext|>')
+    expect(tokenizeBody.encoding).toBe('gpt2')
 
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody.input).toEqual([[1, 2]])
     expect(generateBody.stop_token).toBe(50256)
   })
 
-  it('forwards client-supplied eot_token_id as stop_token to the upstream generate endpoint', async () => {
+  it('forwards the client encoding to the tokenize call', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize
-      .mockResolvedValueOnce(makeStreamResponse(['3']))                      // generate
-      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hi' }))              // decode
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 99] }))         // tokenize
+      .mockResolvedValueOnce(makeStreamResponse(['2']))                      // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))              // decode
 
-    await request(app)
-      .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token_id: 12345 })
-      .buffer(true)
-      .parse((res, cb) => {
-        let data = ''
-        res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-        res.on('end', () => cb(null, data))
-      })
+    await doChat({ ...BASE_BODY, encoding: 'cl100k_base', eot_token: '<|eot_id|>' })
 
-    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
-    expect(generateBody.stop_token).toBe(12345)
+    const tokenizeBody = JSON.parse(findMockCallByUrl('/tokenize/')[1].body as string)
+    expect(tokenizeBody.encoding).toBe('cl100k_base')
+    expect(tokenizeBody.text).toBe('Hi<|eot_id|>')
   })
 
-  it('stops streaming and strips output at the default <|endoftext|> token', async () => {
-    // Arrange – decoded text contains the EOT token mid-way
+  it('stops streaming and strips output at the eot_token string', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))                           // tokenize
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))                    // tokenize
       .mockResolvedValueOnce(makeStreamResponse(['2', '3']))                              // generate
       .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello<|endoftext|>ignored' }))    // decode
 
-    // Act
-    const res = await request(app)
-      .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
-      .buffer(true)
-      .parse((res, cb) => {
-        let data = ''
-        res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-        res.on('end', () => cb(null, data))
-      })
+    const res = await doChat(BASE_BODY)
 
-    // Assert – only "Hello" should be emitted, not "ignored"
     const pieces = await collectSseText(res)
     expect(pieces).toEqual(['Hello'])
   })
 
-  it('strips output at the eot_token string independently of eot_token_id', async () => {
-    // eot_token (string) and eot_token_id (integer) are independent — the client is responsible
-    // for keeping them consistent; the server uses each for its own purpose
+  it('stops streaming and strips at a custom eot_token', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))                      // tokenize
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 99] }))                  // tokenize
       .mockResolvedValueOnce(makeStreamResponse(['2']))                              // generate
       .mockResolvedValueOnce(makeJsonResponse({ text: 'Done<|stop|>extra' }))       // decode
 
-    const res = await request(app)
-      .post('/api/chat')
-      .send({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 5, temperature: 1.0, eot_token: '<|stop|>', eot_token_id: 99999 })
-      .buffer(true)
-      .parse((res, cb) => {
-        let data = ''
-        res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-        res.on('end', () => cb(null, data))
-      })
+    const res = await doChat({ ...BASE_BODY, eot_token: '<|stop|>' })
 
     const pieces = await collectSseText(res)
     expect(pieces).toEqual(['Done'])
-
-    // Verify the integer id was forwarded to generate, not derived from the string
+    // stop_token id comes from the last token of the tokenize response
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
-    expect(generateBody.stop_token).toBe(99999)
+    expect(generateBody.stop_token).toBe(99)
   })
 
   it('returns 400 when message is missing', async () => {
-    const res = await request(app)
-      .post('/api/chat')
-      .send({ model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
-
+    const { message: _, ...noMessage } = BASE_BODY
+    const res = await request(app).post('/api/chat').send(noMessage)
     expect(res.status).toBe(400)
   })
 })
@@ -232,9 +201,8 @@ describe('/api/tokenize, /api/generate, /api/decode – proxy pass-through', () 
 
 describe('/api/chat – request validation', () => {
   it('returns 400 when model_id is missing', async () => {
-    const res = await request(app)
-      .post('/api/chat')
-      .send({ message: 'Hi', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
+    const { model_id: _, ...noModelId } = BASE_BODY
+    const res = await request(app).post('/api/chat').send(noModelId)
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/required/i)
   })
@@ -247,39 +215,37 @@ describe('/api/chat – request validation', () => {
 describe('/api/chat – upstream error handling', () => {
   beforeEach(() => mockFetch.mockReset())
 
-  const validBody = { message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 }
-
   it('sends SSE error event when tokenization fails', async () => {
     mockFetch.mockResolvedValueOnce(makeJsonResponse({ error: 'bad input' }, 400))
-    const res = await doChat(validBody)
+    const res = await doChat(BASE_BODY)
     expect(res.body as string).toContain('event: error')
     expect(res.body as string).toContain('Tokenization failed')
   })
 
   it('sends SSE error event when generation fails', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))           // tokenize ok
-      .mockResolvedValueOnce(makeJsonResponse({ error: 'oops' }, 500))   // generate fails
-    const res = await doChat(validBody)
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))      // tokenize ok
+      .mockResolvedValueOnce(makeJsonResponse({ error: 'oops' }, 500))      // generate fails
+    const res = await doChat(BASE_BODY)
     expect(res.body as string).toContain('event: error')
     expect(res.body as string).toContain('Generation failed')
   })
 
   it('sends SSE error event when generate response has no body', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))          // tokenize ok
-      .mockResolvedValueOnce(new Response(null, { status: 200 }))        // generate: ok status but null body
-    const res = await doChat(validBody)
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))      // tokenize ok
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))           // generate: ok status but null body
+    const res = await doChat(BASE_BODY)
     expect(res.body as string).toContain('event: error')
     expect(res.body as string).toContain('No response body from generation')
   })
 
   it('sends SSE error event when decode response has unexpected format', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))            // tokenize
-      .mockResolvedValueOnce(makeStreamResponse(['2']))                     // generate
-      .mockResolvedValueOnce(makeJsonResponse({ unexpected: 'format' }))  // decode: bad shape
-    const res = await doChat(validBody)
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))       // tokenize
+      .mockResolvedValueOnce(makeStreamResponse(['2']))                       // generate
+      .mockResolvedValueOnce(makeJsonResponse({ unexpected: 'format' }))     // decode: bad shape
+    const res = await doChat(BASE_BODY)
     expect(res.body as string).toContain('event: error')
     expect(res.body as string).toContain('Unexpected response from decode endpoint')
   })
@@ -294,11 +260,11 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
   it('forwards top_k to the upstream generate call when provided', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
       .mockResolvedValueOnce(makeStreamResponse(['2']))
       .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))
 
-    await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0, top_k: 5 })
+    await doChat({ ...BASE_BODY, top_k: 5 })
 
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody.top_k).toBe(5)
@@ -306,26 +272,26 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
   it('omits top_k from generate call when not provided', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
       .mockResolvedValueOnce(makeStreamResponse(['2']))
       .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))
 
-    await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
+    await doChat(BASE_BODY)
 
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody).not.toHaveProperty('top_k')
   })
 
   it('accumulates tokens cumulatively before decoding', async () => {
+    // tokenize('Hi<|endoftext|>') → [1, 2, 50256]; messageTokens=[1,2], stopTokenId=50256
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))             // tokenize
-      .mockResolvedValueOnce(makeStreamResponse(['3', '4']))                    // generate two tokens
-      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello world' }))        // decode with both tokens
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2, 50256] }))        // tokenize
+      .mockResolvedValueOnce(makeStreamResponse(['3', '4']))                      // generate two tokens
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello world' }))          // decode
 
-    const res = await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
+    const res = await doChat(BASE_BODY)
     const pieces = await collectSseText(res)
 
-    // Decode is called with only the generated tokens (cumulative, not including input)
     const decodeBody = JSON.parse(findMockCallByUrl('/decode/')[1].body as string)
     expect(decodeBody.tokens).toEqual([3, 4])
     expect(pieces).toEqual(['Hello world'])
@@ -333,20 +299,20 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
   it('sends [DONE] after successful stream completion', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
       .mockResolvedValueOnce(makeStreamResponse(['2']))
       .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))
 
-    const res = await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
+    const res = await doChat(BASE_BODY)
     expect(res.body as string).toContain('data: [DONE]')
   })
 
   it('emits no SSE text events when generate stream is empty', async () => {
     mockFetch
-      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1] }))
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
       .mockResolvedValueOnce(makeStreamResponse([]))   // empty generate stream
 
-    const res = await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
+    const res = await doChat(BASE_BODY)
     const pieces = await collectSseText(res)
     expect(pieces).toEqual([])
   })
@@ -355,8 +321,7 @@ describe('/api/chat – streaming and parameter forwarding', () => {
     const abortError = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
     mockFetch.mockRejectedValueOnce(abortError)
 
-    const res = await doChat({ message: 'Hi', model_id: 'm1', block_size: 64, max_new_tokens: 10, temperature: 1.0 })
-    // No error event should be emitted for client-side abort
+    const res = await doChat(BASE_BODY)
     expect(res.body as string).not.toContain('event: error')
   })
 })

@@ -36,9 +36,11 @@ function App() {
         {
           message: userMessage,
           model_id: modelId,
+          encoding: 'gpt2',
           block_size: blockSize,
           max_new_tokens: maxTokens,
           temperature: 1.0,
+          eot_token: '<|endoftext|>',
         },
         (fullText) => {
           setMessages((prev) => {
