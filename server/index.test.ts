@@ -148,8 +148,7 @@ describe('/api/chat – EOT token behaviour', () => {
   })
 
   it('returns 400 when message is missing', async () => {
-    const { message: _, ...noMessage } = BASE_BODY
-    const res = await request(app).post('/api/chat').send(noMessage)
+    const res = await request(app).post('/api/chat').send({ ...BASE_BODY, message: undefined })
     expect(res.status).toBe(400)
   })
 })
@@ -201,8 +200,7 @@ describe('/api/tokenize, /api/generate, /api/decode – proxy pass-through', () 
 
 describe('/api/chat – request validation', () => {
   it('returns 400 when model_id is missing', async () => {
-    const { model_id: _, ...noModelId } = BASE_BODY
-    const res = await request(app).post('/api/chat').send(noModelId)
+    const res = await request(app).post('/api/chat').send({ ...BASE_BODY, model_id: undefined })
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/required/i)
   })
