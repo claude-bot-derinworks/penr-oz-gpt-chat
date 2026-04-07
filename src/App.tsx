@@ -12,6 +12,7 @@ function App() {
   const [modelId, setModelId] = useState('gpt-example');
   const [blockSize, setBlockSize] = useState(1024);
   const [maxTokens, setMaxTokens] = useState(50);
+  const [temperature, setTemperature] = useState(0.0);
   const abortRef = useRef<AbortController | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,7 +40,7 @@ function App() {
           encoding: 'gpt2',
           block_size: blockSize,
           max_new_tokens: maxTokens,
-          temperature: 1.0,
+          temperature,
           eot_token: '<|endoftext|>',
         },
         (fullText) => {
@@ -106,6 +107,20 @@ function App() {
               onChange={(e) => {
                 const n = Math.trunc(Number(e.target.value));
                 setMaxTokens(Number.isFinite(n) ? Math.max(1, Math.min(2048, n)) : 1);
+              }}
+            />
+          </label>
+          <label title="Controls randomness: 0.0 = deterministic, 1.0 = most random">
+            Temperature:
+            <input
+              type="number"
+              value={temperature}
+              min={0}
+              max={1}
+              step={0.1}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setTemperature(Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
               }}
             />
           </label>
