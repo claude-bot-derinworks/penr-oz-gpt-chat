@@ -167,7 +167,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       if (batch.length === 0) return false;
       cumulativeTokens.push(...batch);
 
-      const decodeRes = await forwardPost('/decode/', { encoding: 'gpt2', tokens: cumulativeTokens }, clientAbort.signal);
+      const decodeRes = await forwardPost('/decode/', { encoding: encoding || 'gpt2', tokens: cumulativeTokens }, clientAbort.signal);
       if (!decodeRes.ok) {
         sendError('Failed to decode token batch');
         return true;

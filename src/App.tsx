@@ -10,6 +10,8 @@ function App() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelId, setModelId] = useState('gpt-example');
+  const [encoding, setEncoding] = useState('gpt2');
+  const [eotToken, setEotToken] = useState('<|endoftext|>');
   const [blockSize, setBlockSize] = useState(1024);
   const [maxTokens, setMaxTokens] = useState(50);
   const [temperature, setTemperature] = useState(0.0);
@@ -37,11 +39,11 @@ function App() {
         {
           message: userMessage,
           model_id: modelId,
-          encoding: 'gpt2',
+          encoding: encoding.trim() || 'gpt2',
           block_size: blockSize,
           max_new_tokens: maxTokens,
           temperature,
-          eot_token: '<|endoftext|>',
+          eot_token: eotToken.trim() || '<|endoftext|>',
         },
         (fullText) => {
           setMessages((prev) => {
@@ -82,6 +84,22 @@ function App() {
               type="text"
               value={modelId}
               onChange={(e) => setModelId(e.target.value)}
+            />
+          </label>
+          <label>
+            Encoding:
+            <input
+              type="text"
+              value={encoding}
+              onChange={(e) => setEncoding(e.target.value)}
+            />
+          </label>
+          <label>
+            EOT:
+            <input
+              type="text"
+              value={eotToken}
+              onChange={(e) => setEotToken(e.target.value)}
             />
           </label>
           <label>
