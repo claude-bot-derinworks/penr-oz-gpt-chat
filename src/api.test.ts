@@ -158,7 +158,7 @@ describe('chatStream', () => {
     message: 'Hello',
     model_id: 'gpt2',
     encoding: 'gpt2',
-    block_size: 64,
+    block_size: 2304,
     max_new_tokens: 20,
     temperature: 1.0,
     eot_token: '<|endoftext|>',
@@ -248,5 +248,12 @@ describe('chatStream', () => {
     expect(url).toContain('/chat')
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toMatchObject(req)
+  })
+
+  it('preserves block_size values above 2048 in the request body', async () => {
+    mockFetch.mockResolvedValueOnce(makeSseResponse(['data: [DONE]\n\n']))
+    await chatStream({ ...req, block_size: 4096 }, vi.fn())
+    const [, options] = mockFetch.mock.calls[0]
+    expect(JSON.parse(options.body).block_size).toBe(4096)
   })
 })

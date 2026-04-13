@@ -4,6 +4,11 @@ import { MessageList, type Message } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import './App.css'
 
+function normalizePositiveInteger(value: string, fallback: number): number {
+  const n = Math.trunc(Number(value))
+  return Number.isFinite(n) ? Math.max(1, n) : fallback
+}
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -12,7 +17,7 @@ function App() {
   const [modelId, setModelId] = useState('gpt-example');
   const [encoding, setEncoding] = useState('gpt2');
   const [eotToken, setEotToken] = useState('<|endoftext|>');
-  const [blockSize, setBlockSize] = useState(1024);
+  const [blockSizeInput, setBlockSizeInput] = useState('1024');
   const [maxTokens, setMaxTokens] = useState(50);
   const [temperature, setTemperature] = useState(0.0);
   const abortRef = useRef<AbortController | null>(null);
@@ -22,8 +27,10 @@ function App() {
     if (!input.trim() || streaming) return;
 
     const userMessage = input.trim();
+    const blockSize = normalizePositiveInteger(blockSizeInput, 1024);
     setInput('');
     setError(null);
+    setBlockSizeInput(String(blockSize));
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: userMessage },
@@ -106,13 +113,10 @@ function App() {
             Block size:
             <input
               type="number"
-              value={blockSize}
+              value={blockSizeInput}
               min={1}
-              max={2048}
-              onChange={(e) => {
-                const n = Math.trunc(Number(e.target.value));
-                setBlockSize(Number.isFinite(n) ? Math.max(1, Math.min(2048, n)) : 1)
-              }}
+              onChange={(e) => setBlockSizeInput(e.target.value)}
+              onBlur={(e) => setBlockSizeInput(String(normalizePositiveInteger(e.target.value, 1024)))}
             />
           </label>
           <label>
