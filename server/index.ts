@@ -81,6 +81,8 @@ for (const proxyPath of PROXY_PATHS) {
 // /api/chat  --  streaming orchestrated endpoint (SSE)
 // ---------------------------------------------------------------------------
 
+type Device = 'cpu' | 'mps' | 'cuda';
+
 interface ChatRequest {
   message: string;
   model_id: string;
@@ -90,10 +92,11 @@ interface ChatRequest {
   temperature: number;
   top_k?: number;
   eot_token: string;
+  device: Device;
 }
 
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const { message, model_id, encoding, block_size, max_new_tokens, temperature, top_k, eot_token } =
+  const { message, model_id, encoding, block_size, max_new_tokens, temperature, top_k, eot_token, device } =
     req.body as ChatRequest;
 
   if (!message || !model_id) {
@@ -137,6 +140,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       temperature,
       stream: true,
       stop_token: stopTokenId,
+      device,
       ...(top_k != null && { top_k }),
     }, clientAbort.signal);
 

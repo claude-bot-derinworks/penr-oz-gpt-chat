@@ -78,7 +78,7 @@ function findMockCallByUrl(urlSubstring: string): [string, RequestInit] {
 }
 
 // Base chat body — client is responsible for supplying encoding and eot_token
-const BASE_BODY = { message: 'Hi', model_id: 'm1', encoding: 'gpt2', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token: '<|endoftext|>' }
+const BASE_BODY = { message: 'Hi', model_id: 'm1', encoding: 'gpt2', block_size: 64, max_new_tokens: 10, temperature: 1.0, eot_token: '<|endoftext|>', device: 'cpu' }
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -278,6 +278,18 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody).not.toHaveProperty('top_k')
+  })
+
+  it('forwards device to the upstream generate call', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
+      .mockResolvedValueOnce(makeStreamResponse(['2']))
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))
+
+    await doChat({ ...BASE_BODY, device: 'cuda' })
+
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody.device).toBe('cuda')
   })
 
   it('accumulates tokens cumulatively before decoding', async () => {
