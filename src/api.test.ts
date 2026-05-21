@@ -162,6 +162,7 @@ describe('chatStream', () => {
     max_new_tokens: 20,
     temperature: 1.0,
     eot_token: '<|endoftext|>',
+    device: 'cpu',
   }
 
   it('throws when the response is not ok', async () => {
@@ -255,5 +256,12 @@ describe('chatStream', () => {
     await chatStream({ ...req, block_size: 4096 }, vi.fn())
     const [, options] = mockFetch.mock.calls[0]
     expect(JSON.parse(options.body).block_size).toBe(4096)
+  })
+
+  it('forwards the device field in the request body', async () => {
+    mockFetch.mockResolvedValueOnce(makeSseResponse(['data: [DONE]\n\n']))
+    await chatStream({ ...req, device: 'cuda' }, vi.fn())
+    const [, options] = mockFetch.mock.calls[0]
+    expect(JSON.parse(options.body).device).toBe('cuda')
   })
 })

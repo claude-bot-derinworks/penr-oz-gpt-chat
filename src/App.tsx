@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { chatStream } from './api'
+import { chatStream, type Device } from './api'
 import { MessageList, type Message } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import './App.css'
@@ -20,6 +20,7 @@ function App() {
   const [blockSizeInput, setBlockSizeInput] = useState('1024');
   const [maxTokens, setMaxTokens] = useState(50);
   const [temperature, setTemperature] = useState(0.0);
+  const [device, setDevice] = useState<Device>('cpu');
   const abortRef = useRef<AbortController | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,6 +52,7 @@ function App() {
           max_new_tokens: maxTokens,
           temperature,
           eot_token: eotToken.trim() || '<|endoftext|>',
+          device,
         },
         (fullText) => {
           setMessages((prev) => {
@@ -145,6 +147,14 @@ function App() {
                 setTemperature(Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
               }}
             />
+          </label>
+          <label>
+            Device:
+            <select value={device} onChange={(e) => setDevice(e.target.value as Device)}>
+              <option value="cpu">cpu</option>
+              <option value="mps">mps</option>
+              <option value="cuda">cuda</option>
+            </select>
           </label>
         </div>
       </header>

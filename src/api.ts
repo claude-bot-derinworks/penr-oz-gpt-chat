@@ -68,6 +68,8 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
   return data;
 }
 
+export type Device = 'cpu' | 'mps' | 'cuda';
+
 export interface ChatRequest {
   message: string;
   model_id: string;
@@ -77,6 +79,7 @@ export interface ChatRequest {
   temperature: number;
   top_k?: number;
   eot_token: string;
+  device: Device;
 }
 
 export async function chatStream(
