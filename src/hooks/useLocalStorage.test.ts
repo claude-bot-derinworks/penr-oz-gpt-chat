@@ -66,4 +66,11 @@ describe('useLocalStorage', () => {
     expect(() => act(() => result.current[1]('y'))).not.toThrow()
     expect(result.current[0]).toBe('y')
   })
+
+  it('supports functional updates based on previous value', () => {
+    const { result } = renderHook(() => useLocalStorage('count', 1))
+    act(() => result.current[1]((prev) => prev + 1))
+    expect(result.current[0]).toBe(2)
+    expect(store['count']).toBe(JSON.stringify(2))
+  })
 })

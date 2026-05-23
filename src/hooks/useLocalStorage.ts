@@ -8,7 +8,7 @@ import { useState } from 'react'
  * `initialValue`.  Every time the returned setter is called the new value is
  * also written to localStorage so subsequent visits restore it automatically.
  */
-export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => void] {
+export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
       const item = localStorage.getItem(key)
@@ -18,10 +18,11 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T)
     }
   })
 
-  const setValue = (value: T) => {
-    setStoredValue(value)
+  const setValue = (value: T | ((val: T) => T)) => {
+    const valueToStore = value instanceof Function ? value(storedValue) : value
+    setStoredValue(valueToStore)
     try {
-      localStorage.setItem(key, JSON.stringify(value))
+      localStorage.setItem(key, JSON.stringify(valueToStore))
     } catch {
       // Silently ignore write failures (e.g. private-browsing storage quota).
     }
