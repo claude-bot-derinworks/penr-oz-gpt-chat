@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { chatStream, type Device } from './api'
 import { MessageList, type Message } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
+import { useLocalStorage } from './hooks/useLocalStorage'
 import './App.css'
 
 function normalizePositiveInteger(value: string, fallback: number): number {
@@ -14,13 +15,14 @@ function App() {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelId, setModelId] = useState('gpt-example');
-  const [encoding, setEncoding] = useState('gpt2');
-  const [eotToken, setEotToken] = useState('<|endoftext|>');
-  const [blockSizeInput, setBlockSizeInput] = useState('1024');
-  const [maxTokens, setMaxTokens] = useState(50);
-  const [temperature, setTemperature] = useState(0.0);
-  const [device, setDevice] = useState<Device>('cpu');
+  // Settings below are persisted to localStorage and restored on next visit.
+  const [modelId, setModelId] = useLocalStorage('chat.modelId', 'gpt-example');
+  const [encoding, setEncoding] = useLocalStorage('chat.encoding', 'gpt2');
+  const [eotToken, setEotToken] = useLocalStorage('chat.eotToken', '<|endoftext|>');
+  const [blockSizeInput, setBlockSizeInput] = useLocalStorage('chat.blockSizeInput', '1024');
+  const [maxTokens, setMaxTokens] = useLocalStorage('chat.maxTokens', 50);
+  const [temperature, setTemperature] = useLocalStorage('chat.temperature', 0.0);
+  const [device, setDevice] = useLocalStorage<Device>('chat.device', 'cpu');
   const abortRef = useRef<AbortController | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
