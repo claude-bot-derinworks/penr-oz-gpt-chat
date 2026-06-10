@@ -10,6 +10,19 @@ function normalizePositiveInteger(value: string, fallback: number): number {
   return Number.isFinite(n) ? Math.max(1, n) : fallback
 }
 
+// Empty string means "not set"; invalid or out-of-range values normalize to not set.
+function normalizeTopK(value: string): number | null {
+  if (value.trim() === '') return null
+  const n = Math.trunc(Number(value))
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function normalizeTopP(value: string): number | null {
+  if (value.trim() === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : null
+}
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -34,12 +47,14 @@ function App() {
 
     const userMessage = input.trim();
     const blockSize = normalizePositiveInteger(blockSizeInput, 1024);
-    const topK = Math.trunc(Number(topKInput));
-    const topP = Number(topPInput);
+    const topK = normalizeTopK(topKInput);
+    const topP = normalizeTopP(topPInput);
     const eotTokenTrimmed = eotToken.trim();
     setInput('');
     setError(null);
     setBlockSizeInput(String(blockSize));
+    setTopKInput(topK != null ? String(topK) : '');
+    setTopPInput(topP != null ? String(topP) : '');
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: userMessage },
@@ -59,8 +74,8 @@ function App() {
           block_size: blockSize,
           max_new_tokens: maxTokens,
           temperature,
-          ...(topKInput.trim() !== '' && topK > 0 && { top_k: topK }),
-          ...(topPInput.trim() !== '' && topP > 0 && topP <= 1 && { top_p: topP }),
+          ...(topK != null && { top_k: topK }),
+          ...(topP != null && { top_p: topP }),
           ...(eotTokenTrimmed !== '' && { eot_token: eotTokenTrimmed }),
           device,
         },
@@ -167,6 +182,10 @@ function App() {
               step={1}
               placeholder="off"
               onChange={(e) => setTopKInput(e.target.value)}
+              onBlur={(e) => {
+                const n = normalizeTopK(e.target.value);
+                setTopKInput(n != null ? String(n) : '');
+              }}
             />
           </label>
           <label title="Top-p (nucleus) sampling threshold; leave empty to disable">
@@ -179,6 +198,10 @@ function App() {
               step={0.05}
               placeholder="off"
               onChange={(e) => setTopPInput(e.target.value)}
+              onBlur={(e) => {
+                const n = normalizeTopP(e.target.value);
+                setTopPInput(n != null ? String(n) : '');
+              }}
             />
           </label>
           <label>
