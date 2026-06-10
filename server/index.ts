@@ -91,12 +91,13 @@ interface ChatRequest {
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
-  eot_token: string;
+  top_p?: number;
+  eot_token?: string;
   device: Device;
 }
 
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const { message, model_id, encoding, block_size, max_new_tokens, temperature, top_k, eot_token, device } =
+  const { message, model_id, encoding, block_size, max_new_tokens, temperature, top_k, top_p, eot_token, device } =
     req.body as ChatRequest;
 
   if (!message || !model_id) {
@@ -118,8 +119,15 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   res.on('close', () => clientAbort.abort());
 
   try {
-    // 1. Tokenize message + eot_token together so the last token id is the stop token id
-    const tokenizeRes = await forwardPost('/tokenize/', { encoding, text: message + eot_token }, clientAbort.signal);
+    // 1. Tokenize the message. When eot_token is provided it is appended so the
+    //    last token id becomes the stop token id; base models may omit it, in
+    //    which case no stop_token is passed to the generate call.
+    const hasEotToken = typeof eot_token === 'string' && eot_token.length > 0;
+    const tokenizeRes = await forwardPost(
+      '/tokenize/',
+      { encoding, text: hasEotToken ? message + eot_token : message },
+      clientAbort.signal,
+    );
     if (!tokenizeRes.ok) {
       const errBody = await tokenizeRes.json().catch(() => null);
       console.error(`API error ${tokenizeRes.status} from /tokenize/:`, JSON.stringify(errBody));
@@ -128,8 +136,8 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       return;
     }
     const { tokens } = (await tokenizeRes.json()) as { tokens: number[] };
-    const stopTokenId = tokens[tokens.length - 1];
-    const messageTokens = tokens.slice(0, -1);
+    const stopTokenId = hasEotToken ? tokens[tokens.length - 1] : undefined;
+    const messageTokens = hasEotToken ? tokens.slice(0, -1) : tokens;
 
     // 2. Generate with stream: true — upstream yields one token integer per line
     const generateRes = await forwardPost('/generate/', {
@@ -139,9 +147,10 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       max_new_tokens,
       temperature,
       stream: true,
-      stop_token: stopTokenId,
       device,
+      ...(stopTokenId != null && { stop_token: stopTokenId }),
       ...(top_k != null && { top_k }),
+      ...(top_p != null && { top_p }),
     }, clientAbort.signal);
 
     if (!generateRes.ok) {
@@ -182,7 +191,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         return true;
       }
       const text = decoded.text;
-      const endIdx = text.indexOf(eot_token);
+      const endIdx = hasEotToken ? text.indexOf(eot_token) : -1;
       const piece = endIdx < 0 ? text : text.slice(0, endIdx);
       if (piece) sendEvent({ text: piece });
       return endIdx >= 0;

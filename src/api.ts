@@ -9,6 +9,7 @@ export interface GenerateRequest {
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
+  top_p?: number;
 }
 
 export interface GenerateResponse {
@@ -78,7 +79,8 @@ export interface ChatRequest {
   max_new_tokens: number;
   temperature: number;
   top_k?: number;
-  eot_token: string;
+  top_p?: number;
+  eot_token?: string;
   device: Device;
 }
 

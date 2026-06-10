@@ -22,6 +22,9 @@ function App() {
   const [blockSizeInput, setBlockSizeInput] = useLocalStorage('chat.blockSizeInput', '1024');
   const [maxTokens, setMaxTokens] = useLocalStorage('chat.maxTokens', 50);
   const [temperature, setTemperature] = useLocalStorage('chat.temperature', 0.0);
+  // top_k / top_p are optional; empty string means "not set" and is omitted from requests
+  const [topKInput, setTopKInput] = useLocalStorage('chat.topK', '');
+  const [topPInput, setTopPInput] = useLocalStorage('chat.topP', '');
   const [device, setDevice] = useLocalStorage<Device>('chat.device', 'cpu');
   const abortRef = useRef<AbortController | null>(null);
 
@@ -31,6 +34,9 @@ function App() {
 
     const userMessage = input.trim();
     const blockSize = normalizePositiveInteger(blockSizeInput, 1024);
+    const topK = Math.trunc(Number(topKInput));
+    const topP = Number(topPInput);
+    const eotTokenTrimmed = eotToken.trim();
     setInput('');
     setError(null);
     setBlockSizeInput(String(blockSize));
@@ -53,7 +59,9 @@ function App() {
           block_size: blockSize,
           max_new_tokens: maxTokens,
           temperature,
-          eot_token: eotToken.trim() || '<|endoftext|>',
+          ...(topKInput.trim() !== '' && topK > 0 && { top_k: topK }),
+          ...(topPInput.trim() !== '' && topP > 0 && topP <= 1 && { top_p: topP }),
+          ...(eotTokenTrimmed !== '' && { eot_token: eotTokenTrimmed }),
           device,
         },
         (fullText) => {
@@ -105,7 +113,7 @@ function App() {
               onChange={(e) => setEncoding(e.target.value)}
             />
           </label>
-          <label>
+          <label title="End-of-text token; leave empty for base models (no stop token is sent)">
             EOT:
             <input
               type="text"
@@ -148,6 +156,29 @@ function App() {
                 const n = Number(e.target.value);
                 setTemperature(Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
               }}
+            />
+          </label>
+          <label title="Top-k sampling cutoff; leave empty to disable">
+            Top k:
+            <input
+              type="number"
+              value={topKInput}
+              min={1}
+              step={1}
+              placeholder="off"
+              onChange={(e) => setTopKInput(e.target.value)}
+            />
+          </label>
+          <label title="Top-p (nucleus) sampling threshold; leave empty to disable">
+            Top p:
+            <input
+              type="number"
+              value={topPInput}
+              min={0}
+              max={1}
+              step={0.05}
+              placeholder="off"
+              onChange={(e) => setTopPInput(e.target.value)}
             />
           </label>
           <label>

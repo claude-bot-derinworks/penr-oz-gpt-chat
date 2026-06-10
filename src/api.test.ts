@@ -141,6 +141,13 @@ describe('generate', () => {
     expect(body.top_k).toBe(10)
   })
 
+  it('includes optional top_p when provided', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ tokens: [4] }))
+    await generate({ ...req, top_p: 0.9 })
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.top_p).toBe(0.9)
+  })
+
   it('throws when the response is not ok', async () => {
     mockFetch.mockResolvedValueOnce(new Response('', { status: 503, statusText: 'Service Unavailable' }))
     await expect(generate(req)).rejects.toThrow('Generate failed')
@@ -263,5 +270,22 @@ describe('chatStream', () => {
     await chatStream({ ...req, device: 'cuda' }, vi.fn())
     const [, options] = mockFetch.mock.calls[0]
     expect(JSON.parse(options.body).device).toBe('cuda')
+  })
+
+  it('forwards optional top_k and top_p in the request body', async () => {
+    mockFetch.mockResolvedValueOnce(makeSseResponse(['data: [DONE]\n\n']))
+    await chatStream({ ...req, top_k: 40, top_p: 0.95 }, vi.fn())
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.top_k).toBe(40)
+    expect(body.top_p).toBe(0.95)
+  })
+
+  it('accepts a request without eot_token (base model)', async () => {
+    mockFetch.mockResolvedValueOnce(makeSseResponse(['data: [DONE]\n\n']))
+    const baseReq: ChatRequest = { ...req }
+    delete baseReq.eot_token
+    await chatStream(baseReq, vi.fn())
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body).not.toHaveProperty('eot_token')
   })
 })
