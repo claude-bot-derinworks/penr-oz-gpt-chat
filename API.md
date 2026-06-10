@@ -26,10 +26,14 @@ Orchestrated streaming endpoint. Tokenizes the message, runs generation using th
 {
   "message": "Once upon a time",
   "model_id": "gpt-example",
+  "encoding": "gpt2",
   "block_size": 1024,
   "max_new_tokens": 50,
   "temperature": 1.0,
-  "top_k": 40
+  "top_k": 40,
+  "top_p": 0.95,
+  "eot_token": "<|endoftext|>",
+  "device": "cpu"
 }
 ```
 
@@ -37,10 +41,14 @@ Orchestrated streaming endpoint. Tokenizes the message, runs generation using th
 |------------------|----------|----------|-------------------------------------------------------|
 | `message`        | `string` | Yes      | The user's input text                                 |
 | `model_id`       | `string` | Yes      | Identifier of the model to use for generation         |
+| `encoding`       | `string` | Yes      | Tokenizer name (e.g. `"gpt2"`)                        |
 | `block_size`     | `number` | Yes      | Context window size (any positive integer)            |
 | `max_new_tokens` | `number` | Yes      | Maximum number of tokens to generate (1–2048)         |
 | `temperature`    | `number` | Yes      | Sampling temperature; higher = more random (e.g. 1.0) |
 | `top_k`          | `number` | No       | Top-k sampling cutoff; omit to disable                |
+| `top_p`          | `number` | No       | Top-p (nucleus) sampling threshold; omit to disable   |
+| `eot_token`      | `string` | No       | End-of-text token. When provided, its token id is passed to generation as `stop_token` and output is truncated at the token. Omit (or send empty) for base models — no `stop_token` is sent upstream. |
+| `device`         | `string` | Yes      | Compute device: `"cpu"`, `"mps"`, or `"cuda"`         |
 
 **Response** — `Content-Type: text/event-stream`
 
@@ -116,7 +124,8 @@ Proxy pass-through to the neural network service's `/generate/` endpoint.
   "block_size": 1024,
   "max_new_tokens": 50,
   "temperature": 1.0,
-  "top_k": 40
+  "top_k": 40,
+  "top_p": 0.95
 }
 ```
 
@@ -128,6 +137,7 @@ Proxy pass-through to the neural network service's `/generate/` endpoint.
 | `max_new_tokens` | `number`     | Yes      | Maximum number of new tokens to generate (1–2048)   |
 | `temperature`    | `number`     | Yes      | Sampling temperature                                |
 | `top_k`          | `number`     | No       | Top-k sampling cutoff; omit to disable              |
+| `top_p`          | `number`     | No       | Top-p (nucleus) sampling threshold; omit to disable |
 
 **Response (200)**
 
@@ -252,7 +262,8 @@ Runs autoregressive token generation using the specified model.
   "block_size": 1024,
   "max_new_tokens": 50,
   "temperature": 1.0,
-  "top_k": 40
+  "top_k": 40,
+  "top_p": 0.95
 }
 ```
 
@@ -264,6 +275,8 @@ Runs autoregressive token generation using the specified model.
 | `max_new_tokens` | `number`     | Yes      | Maximum number of new tokens to generate (1–2048)  |
 | `temperature`    | `number`     | Yes      | Sampling temperature                               |
 | `top_k`          | `number`     | No       | Top-k sampling cutoff; omit to disable             |
+| `top_p`          | `number`     | No       | Top-p (nucleus) sampling threshold; omit to disable|
+| `stop_token`     | `number`     | No       | Token id that halts generation when produced; omitted when no `eot_token` is configured |
 
 **Response (200)**
 
@@ -328,6 +341,8 @@ Error responses from the neural network service are forwarded as-is by the proxy
 ## Full `/api/chat` Flow
 
 `/api/chat` orchestrates three upstream calls and streams decoded tokens back to the client as SSE. Generation uses the upstream's native `stream: true` mode, so each new token integer arrives line-by-line and is decoded individually before being forwarded.
+
+When `eot_token` is provided, it is appended to the message before tokenization so its token id can be passed to `/generate/` as `stop_token`, and decoded output is truncated at the first occurrence of the token. When `eot_token` is omitted (base models), only the message is tokenized and no `stop_token` is sent.
 
 ```
 Client                  Proxy                     Neural Network Service

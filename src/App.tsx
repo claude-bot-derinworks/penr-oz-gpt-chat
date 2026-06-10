@@ -10,6 +10,19 @@ function normalizePositiveInteger(value: string, fallback: number): number {
   return Number.isFinite(n) ? Math.max(1, n) : fallback
 }
 
+// Empty string means "not set"; invalid or out-of-range values normalize to not set.
+function normalizeTopK(value: string): number | null {
+  if (value.trim() === '') return null
+  const n = Math.trunc(Number(value))
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function normalizeTopP(value: string): number | null {
+  if (value.trim() === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : null
+}
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -22,6 +35,9 @@ function App() {
   const [blockSizeInput, setBlockSizeInput] = useLocalStorage('chat.blockSizeInput', '1024');
   const [maxTokens, setMaxTokens] = useLocalStorage('chat.maxTokens', 50);
   const [temperature, setTemperature] = useLocalStorage('chat.temperature', 0.0);
+  // top_k / top_p are optional; empty string means "not set" and is omitted from requests
+  const [topKInput, setTopKInput] = useLocalStorage('chat.topK', '');
+  const [topPInput, setTopPInput] = useLocalStorage('chat.topP', '');
   const [device, setDevice] = useLocalStorage<Device>('chat.device', 'cpu');
   const abortRef = useRef<AbortController | null>(null);
 
@@ -31,9 +47,14 @@ function App() {
 
     const userMessage = input.trim();
     const blockSize = normalizePositiveInteger(blockSizeInput, 1024);
+    const topK = normalizeTopK(topKInput);
+    const topP = normalizeTopP(topPInput);
+    const eotTokenTrimmed = eotToken.trim();
     setInput('');
     setError(null);
     setBlockSizeInput(String(blockSize));
+    setTopKInput(topK != null ? String(topK) : '');
+    setTopPInput(topP != null ? String(topP) : '');
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: userMessage },
@@ -53,7 +74,9 @@ function App() {
           block_size: blockSize,
           max_new_tokens: maxTokens,
           temperature,
-          eot_token: eotToken.trim() || '<|endoftext|>',
+          ...(topK != null && { top_k: topK }),
+          ...(topP != null && { top_p: topP }),
+          ...(eotTokenTrimmed !== '' && { eot_token: eotTokenTrimmed }),
           device,
         },
         (fullText) => {
@@ -105,7 +128,7 @@ function App() {
               onChange={(e) => setEncoding(e.target.value)}
             />
           </label>
-          <label>
+          <label title="End-of-text token; leave empty for base models (no stop token is sent)">
             EOT:
             <input
               type="text"
@@ -147,6 +170,37 @@ function App() {
               onChange={(e) => {
                 const n = Number(e.target.value);
                 setTemperature(Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
+              }}
+            />
+          </label>
+          <label title="Top-k sampling cutoff; leave empty to disable">
+            Top k:
+            <input
+              type="number"
+              value={topKInput}
+              min={1}
+              step={1}
+              placeholder="off"
+              onChange={(e) => setTopKInput(e.target.value)}
+              onBlur={(e) => {
+                const n = normalizeTopK(e.target.value);
+                setTopKInput(n != null ? String(n) : '');
+              }}
+            />
+          </label>
+          <label title="Top-p (nucleus) sampling threshold; leave empty to disable">
+            Top p:
+            <input
+              type="number"
+              value={topPInput}
+              min={0}
+              max={1}
+              step={0.05}
+              placeholder="off"
+              onChange={(e) => setTopPInput(e.target.value)}
+              onBlur={(e) => {
+                const n = normalizeTopP(e.target.value);
+                setTopPInput(n != null ? String(n) : '');
               }}
             />
           </label>

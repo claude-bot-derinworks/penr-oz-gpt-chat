@@ -151,6 +151,50 @@ describe('/api/chat – EOT token behaviour', () => {
     const res = await request(app).post('/api/chat').send({ ...BASE_BODY, message: undefined })
     expect(res.status).toBe(400)
   })
+
+  it('tokenizes only the message and omits stop_token when eot_token is not provided', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))          // tokenize message only
+      .mockResolvedValueOnce(makeStreamResponse(['3']))                      // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello' }))           // decode
+
+    await doChat({ ...BASE_BODY, eot_token: undefined })
+
+    const tokenizeBody = JSON.parse(findMockCallByUrl('/tokenize/')[1].body as string)
+    expect(tokenizeBody.text).toBe('Hi')
+
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody.input).toEqual([[1, 2]])
+    expect(generateBody).not.toHaveProperty('stop_token')
+  })
+
+  it('treats an empty eot_token string the same as not provided', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [7, 8] }))          // tokenize message only
+      .mockResolvedValueOnce(makeStreamResponse(['9']))                      // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'ok' }))              // decode
+
+    await doChat({ ...BASE_BODY, eot_token: '' })
+
+    const tokenizeBody = JSON.parse(findMockCallByUrl('/tokenize/')[1].body as string)
+    expect(tokenizeBody.text).toBe('Hi')
+
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody.input).toEqual([[7, 8]])
+    expect(generateBody).not.toHaveProperty('stop_token')
+  })
+
+  it('streams decoded text without eot stripping when eot_token is not provided', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 2] }))                       // tokenize
+      .mockResolvedValueOnce(makeStreamResponse(['3', '4']))                              // generate
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'Hello<|endoftext|>world' }))      // decode
+
+    const res = await doChat({ ...BASE_BODY, eot_token: undefined })
+
+    const pieces = await collectSseText(res)
+    expect(pieces).toEqual(['Hello<|endoftext|>world'])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -278,6 +322,30 @@ describe('/api/chat – streaming and parameter forwarding', () => {
 
     const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
     expect(generateBody).not.toHaveProperty('top_k')
+  })
+
+  it('forwards top_p to the upstream generate call when provided', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
+      .mockResolvedValueOnce(makeStreamResponse(['2']))
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))
+
+    await doChat({ ...BASE_BODY, top_p: 0.9 })
+
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody.top_p).toBe(0.9)
+  })
+
+  it('omits top_p from generate call when not provided', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeJsonResponse({ tokens: [1, 50256] }))
+      .mockResolvedValueOnce(makeStreamResponse(['2']))
+      .mockResolvedValueOnce(makeJsonResponse({ text: 'hi' }))
+
+    await doChat(BASE_BODY)
+
+    const generateBody = JSON.parse(findMockCallByUrl('/generate/')[1].body as string)
+    expect(generateBody).not.toHaveProperty('top_p')
   })
 
   it('forwards device to the upstream generate call', async () => {
